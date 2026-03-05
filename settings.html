@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>设置 - 金融工具箱</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="header">
+    <nav class="nav">
+      <div class="logo">📊 金融工具箱</div>
+      <button class="mobile-menu-btn">☰</button>
+      <ul class="nav-links">
+        <li><a href="index.html">首页</a></li>
+        <li><a href="calculator.html">计算器</a></li>
+        <li><a href="backtest.html">回测</a></li>
+        <li><a href="settings.html" class="active">设置</a></li>
+        <li><a href="about.html">关于</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main class="main">
+    <h1 class="page-title">⚙️ 设置</h1>
+
+    <!-- 主题设置 -->
+    <section class="settings-section">
+      <h2>🎨 主题设置</h2>
+
+      <div class="settings-item">
+        <div>
+          <div class="settings-label">界面主题</div>
+          <div class="settings-desc">选择界面颜色风格</div>
+        </div>
+        <div class="radio-group" id="theme-options">
+          <label class="radio-label" data-value="light">
+            <input type="radio" name="theme" value="light">
+            <span>☀️ 浅色</span>
+          </label>
+          <label class="radio-label" data-value="dark">
+            <input type="radio" name="theme" value="dark">
+            <span>🌙 深色</span>
+          </label>
+          <label class="radio-label" data-value="system">
+            <input type="radio" name="theme" value="system">
+            <span>🖥️ 跟随系统</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="settings-item">
+        <div>
+          <div class="settings-label">涨跌颜色</div>
+          <div class="settings-desc">设置上涨和下跌的显示颜色</div>
+        </div>
+        <div class="radio-group" id="color-scheme-options">
+          <label class="radio-label" data-value="green-red">
+            <input type="radio" name="colorScheme" value="green-red">
+            <span>🟢涨 🟥跌</span>
+          </label>
+          <label class="radio-label" data-value="red-green">
+            <input type="radio" name="colorScheme" value="red-green">
+            <span>🟥涨 🟢跌</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="settings-item">
+        <div>
+          <div class="settings-label">色盲模式</div>
+          <div class="settings-desc">为色觉障碍用户提供的颜色方案</div>
+        </div>
+        <div class="radio-group" id="colorblind-options">
+          <label class="radio-label" data-value="0">
+            <input type="radio" name="colorblind" value="0">
+            <span>正常</span>
+          </label>
+          <label class="radio-label" data-value="1">
+            <input type="radio" name="colorblind" value="1">
+            <span>蓝/橙</span>
+          </label>
+          <label class="radio-label" data-value="2">
+            <input type="radio" name="colorblind" value="2">
+            <span>蓝绿/橙粉</span>
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <!-- 预览 -->
+    <section class="settings-section">
+      <h2>👀 预览效果</h2>
+      <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+        <div style="padding: 1rem; background: var(--color-up-bg); border-radius: 8px; text-align: center;">
+          <div style="font-size: 2rem; color: var(--color-up);">+5.26%</div>
+          <div style="color: var(--text-secondary);">上涨示例</div>
+        </div>
+        <div style="padding: 1rem; background: var(--color-down-bg); border-radius: 8px; text-align: center;">
+          <div style="font-size: 2rem; color: var(--color-down);">-3.21%</div>
+          <div style="color: var(--text-secondary);">下跌示例</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 重置 -->
+    <section class="settings-section">
+      <h2>🔄 重置设置</h2>
+      <p style="color: var(--text-secondary); margin-bottom: 1rem;">将所有设置恢复到默认状态</p>
+      <button class="btn btn-primary" onclick="resetSettings()" style="background: var(--color-down);">恢复默认设置</button>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p>© 2026 金融计算器 & 股票回测平台</p>
+  </footer>
+
+  <script src="js/theme.js"></script>
+  <script src="js/main.js"></script>
+  <script src="js/settings.js"></script>
+</body>
+</html>

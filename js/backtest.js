@@ -1,0 +1,966 @@
+/**
+ * 回测逻辑
+ */
+
+// 股票数据缓存
+let stockDataCache = {};
+let selectedStock = null;
+let backtestChart = null;
+let equityCurveData = null; // 保存原始收益曲线数据
+let initialCapitalData = null; // 保存初始资金
+let searchDebounceTimer = null; // 搜索防抖定时器
+
+// 缓存配置
+const CACHE_KEY = 'stock_list_cache';
+const CACHE_EXPIRY = 60 * 60 * 1000; // 1小时
+
+// 初始化
+document.addEventListener('DOMContentLoaded', async () => {
+  ThemeManager.init();
+  await loadStockList();
+  setupEventListeners();
+});
+
+// 从缓存加载股票列表
+function getCachedStocks() {
+  try {
+    const cached = localStorage.getItem(CACHE_KEY);
+    if (!cached) return null;
+
+    const { data, timestamp } = JSON.parse(cached);
+    // 检查缓存是否过期
+    if (Date.now() - timestamp > CACHE_EXPIRY) {
+      localStorage.removeItem(CACHE_KEY);
+      return null;
+    }
+    return data;
+  } catch (e) {
+    return null;
+  }
+}
+
+// 保存股票列表到缓存
+function setCachedStocks(stocks) {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({
+      data: stocks,
+      timestamp: Date.now()
+    }));
+  } catch (e) {
+    console.warn('缓存股票列表失败:', e);
+  }
+}
+
+// 显示搜索状态消息
+function showSearchStatus(message, isError = false) {
+  const resultsDiv = document.getElementById('search-results');
+  resultsDiv.innerHTML = `<div class="search-result-item" style="color: ${isError ? 'var(--down-color, #e74c3c)' : 'var(--text-secondary)'}">${message}</div>`;
+  resultsDiv.classList.add('show');
+}
+
+// 加载股票列表
+async function loadStockList() {
+  const searchInput = document.getElementById('stock-search');
+
+  // 先尝试从缓存加载
+  const cachedStocks = getCachedStocks();
+  if (cachedStocks) {
+    stockDataCache = { stocks: cachedStocks };
+    searchInput.placeholder = '输入股票代码或名称搜索...';
+    return;
+  }
+
+  // 显示加载状态
+  searchInput.placeholder = '加载股票列表中...';
+  searchInput.disabled = true;
+
+  try {
+    const response = await fetch('data/stocks.json');
+
+    // 检查响应状态
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const stocks = await response.json();
+
+    // 验证数据格式
+    if (!Array.isArray(stocks)) {
+      throw new Error('股票数据格式错误');
+    }
+
+    // 保存到缓存
+    setCachedStocks(stocks);
+    stockDataCache = { stocks };
+    searchInput.placeholder = '输入股票代码或名称搜索...';
+
+  } catch (error) {
+    console.error('加载股票列表失败:', error);
+
+    // 尝试从缓存恢复（即使过期也使用）
+    const cachedStocks = getCachedStocks() || [];
+    if (cachedStocks.length > 0) {
+      stockDataCache = { stocks: cachedStocks };
+      searchInput.placeholder = '输入股票代码或名称搜索... (缓存)';
+    } else {
+      searchInput.placeholder = '加载失败，请刷新页面重试';
+      showSearchStatus('加载股票列表失败: ' + error.message, true);
+    }
+  } finally {
+    searchInput.disabled = false;
+  }
+}
+
+// 设置事件监听
+function setupEventListeners() {
+  // 搜索功能
+  const searchInput = document.getElementById('stock-search');
+  searchInput.addEventListener('input', handleSearch);
+
+  // 策略切换
+  const strategySelect = document.getElementById('strategy');
+  strategySelect.addEventListener('change', (e) => {
+    const smaParams = document.getElementById('sma-params');
+    const dcaParams = document.getElementById('dca-params');
+
+    smaParams.style.display = e.target.value === 'sma' ? 'block' : 'none';
+    dcaParams.style.display = e.target.value === 'dca' ? 'block' : 'none';
+  });
+
+  // 点击其他地方关闭搜索结果
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.search-box')) {
+      document.getElementById('search-results').classList.remove('show');
+    }
+  });
+}
+
+// 搜索处理（带防抖）
+function handleSearch(e) {
+  // 清除之前的防抖定时器
+  if (searchDebounceTimer) {
+    clearTimeout(searchDebounceTimer);
+  }
+
+  const query = e.target.value.trim();
+
+  // 立即隐藏结果如果为空
+  if (query.length < 1) {
+    document.getElementById('search-results').classList.remove('show');
+    return;
+  }
+
+  // 300ms 防抖
+  searchDebounceTimer = setTimeout(() => {
+    performSearch(query);
+  }, 300);
+}
+
+// 执行搜索
+// 拼音首字母到中文的映射
+const pinyinMap = {
+  // 常用股票
+  'gsyh': '工商银行', 'gs': '工商银行', 'gsbank': '工商银行', 'icbc': '工商银行',
+  'jhsy': '建设银行', 'jsbank': '建设银行', 'ccb': '建设银行',
+  'nyyh': '农业银行', 'nybank': '农业银行', 'abc': '农业银行',
+  'zsyh': '招商银行', 'zsbank': '招商银行', 'cmb': '招商银行',
+  'payh': '平安银行', 'pabank': '平安银行',
+  'zgpa': '中国平安', 'pingan': '中国平安', '601318': '中国平安',
+  'zxbank': '中信银行',
+  'msy': '民生银行', 'msbank': '民生银行',
+  'hxyh': '华夏银行', 'hxbank': '华夏银行',
+  'gdyh': '光大银行', 'gdbank': '光大银行',
+  'fyyh': '兴业银行', 'xybank': '兴业银行',
+  'pfy': '浦发银行', 'pfbank': '浦发银行',
+  'shbank': '上海银行',
+  'njy': '南京银行', 'njbank': '南京银行',
+  'bgy': '北京银行', 'bgbank': '北京银行',
+  // 常用词
+  'yh': '银行', 'bank': '银行',
+  'gjs': '钢铁', 'gt': '钢铁',
+  'dc': '地产', 'fang': '房地产',
+  'gy': '工业',
+  'ny': '农业',
+  'dz': '电子',
+  'kj': '科技',
+  'wl': '网络',
+  'sj': '手机',
+  'dzsw': '电子商务',
+  'yy': '医药',
+  'yl': '医疗',
+  'sp': '食品',
+  'nc': '酿酒',
+  'jx': '家电',
+  'dq': '电气',
+  'tc': '汽车',
+  'jx': '机械',
+  'js': '建筑',
+  'cl': '材料',
+  'ny': '能源',
+  'tf': '通信',
+  'mt': '媒体',
+  'yx': '游戏',
+  'dy': '电影',
+  'ly': '旅游',
+  'hk': '航空',
+  'sn': '水运',
+  'wl': '物流',
+  'sf': '证券',
+  'bx': '保险',
+  'jr': '金融',
+  'sc': '市场'
+};
+
+// 获取中文关键词
+function getChineseKeyword(query) {
+  const lowerQuery = query.toLowerCase();
+  return pinyinMap[lowerQuery] || '';
+}
+
+function performSearch(query) {
+  const resultsDiv = document.getElementById('search-results');
+  const lowerQuery = query.toLowerCase();
+
+  // 检查数据是否加载
+  const stocks = stockDataCache.stocks;
+  if (!stocks || !Array.isArray(stocks)) {
+    resultsDiv.innerHTML = '<div class="search-result-item">股票数据加载中，请稍候...</div>';
+    resultsDiv.classList.add('show');
+    return;
+  }
+
+  // 获取中文关键词
+  const chineseKeyword = getChineseKeyword(query);
+
+  // 搜索匹配：代码、名称、或拼音首字母
+  const matches = stocks.filter(s => {
+    const codeMatch = s.code.toLowerCase().includes(lowerQuery);
+    const nameMatch = s.name.toLowerCase().includes(lowerQuery);
+    const pinyinMatch = chineseKeyword && s.name.includes(chineseKeyword);
+    return codeMatch || nameMatch || pinyinMatch;
+  }).slice(0, 10);
+
+  if (matches.length === 0) {
+    resultsDiv.innerHTML = '<div class="search-result-item">未找到匹配的股票</div>';
+  } else {
+    resultsDiv.innerHTML = matches.map(s =>
+      `<div class="search-result-item" onclick="selectStock('${s.code}', '${s.name}')">
+        ${s.name} (${s.code})
+      </div>`
+    ).join('');
+  }
+
+  resultsDiv.classList.add('show');
+}
+
+// 选择股票
+async function selectStock(code, name) {
+  selectedStock = { code, name };
+
+  document.getElementById('search-results').classList.remove('show');
+  document.getElementById('stock-search').value = '';
+  document.getElementById('selected-stock').style.display = 'block';
+  document.getElementById('selected-stock-name').textContent = name;
+  document.getElementById('selected-stock-code').textContent = code;
+
+  // 加载股票数据
+  await loadStockData(code);
+}
+
+  // 加载股票数据
+async function loadStockData(code) {
+  // 使用fetch直接获取（可能有CORS问题，但试试看）
+  async function tryFetchAPI(code) {
+    try {
+      const response = await fetch(`https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${code},day,,,800,qfq`);
+      const text = await response.text();
+      const data = JSON.parse(text);
+      if (data.data && data.data[code]) {
+        const stockData = data.data[code];
+        const name = stockData.qt && stockData.qt[code] ? stockData.qt[code][1] : '';
+        const klines = stockData.qfqday ? stockData.qfqday.map(k => ({
+          date: k[0], open: parseFloat(k[1]), high: parseFloat(k[2]),
+          low: parseFloat(k[3]), close: parseFloat(k[4]), volume: parseFloat(k[5])
+        })) : [];
+        return { code, name, klines };
+      }
+      throw new Error('无数据');
+    } catch (e) {
+      // 如果fetch失败，尝试东方财富API
+      const secid = code.startsWith('sh') ? `1.${code.slice(2)}` : `0.${code.slice(2)}`;
+      const url2 = `https://push2.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&end=20500101&lmt=800`;
+      const response2 = await fetch(url2);
+      const data2 = await response2.json();
+      if (data2.data && data2.data.klines) {
+        const klines = data2.data.klines.map(k => {
+          const arr = k.split(',');
+          return { date: arr[0], open: parseFloat(arr[1]), high: parseFloat(arr[2]),
+            low: parseFloat(arr[3]), close: parseFloat(arr[4]), volume: parseFloat(arr[5]) };
+        });
+        return { code, name: data2.data.name, klines };
+      }
+      throw new Error('API都失败');
+    }
+  }
+
+  try {
+    // 尝试从本地文件加载
+    let data = null;
+    try {
+      const response = await fetch(`data/${code}.json`);
+      if (response.ok) {
+        data = await response.json();
+      }
+    } catch (e) {
+      console.log('本地数据加载失败，尝试从API获取');
+    }
+
+    // 如果本地没有数据，从API获取
+    if (!data || !data.klines || data.klines.length === 0) {
+      data = await tryFetchAPI(code);
+    }
+
+    if (!data || !data.klines || data.klines.length === 0) {
+      throw new Error('无法获取股票数据');
+    }
+
+    selectedStock.data = data;
+
+    // 设置日期范围
+    if (data.klines && data.klines.length > 0) {
+      const startDateInput = document.getElementById('start-date');
+      const endDateInput = document.getElementById('end-date');
+
+      // 数据是按日期从早到晚排列的，所以[0]是最早日期，[length-1]是最晚日期
+      const earliestDate = data.klines[0].date;
+      const latestDate = data.klines[data.klines.length - 1].date;
+
+      // 使用Date对象进行比较，确保正确处理日期
+      const latest = new Date(latestDate);
+      const earliest = new Date(earliestDate);
+      const currentStart = new Date(startDateInput.value);
+      const currentEnd = new Date(endDateInput.value);
+
+      // 设置日期输入框的范围 (min是最早日期，max是最晚日期)
+      startDateInput.min = earliestDate;
+      startDateInput.max = latestDate;
+      endDateInput.min = earliestDate;
+      endDateInput.max = latestDate;
+
+      // 如果当前日期超出范围，则更新为数据范围内的合理默认值
+      // 默认使用数据的前80%时间范围
+      const range = latest.getTime() - earliest.getTime();
+      const defaultStart = new Date(earliest.getTime() + range * 0.1);
+      const defaultEnd = new Date(latest.getTime() - range * 0.05);
+
+      // 显示数据范围提示
+      const dataYears = range / (1000 * 60 * 60 * 24 * 365);
+      const dataRangeEl = document.getElementById('stock-data-range');
+      dataRangeEl.textContent = `数据范围：${earliestDate} ~ ${latestDate}（约${dataYears.toFixed(1)}年）`;
+
+      if (isNaN(currentStart.getTime()) || currentStart < earliest || currentStart > latest) {
+        startDateInput.value = defaultStart.toISOString().split('T')[0];
+      }
+      if (isNaN(currentEnd.getTime()) || currentEnd < earliest || currentEnd > latest) {
+        endDateInput.value = defaultEnd.toISOString().split('T')[0];
+      }
+    }
+  } catch (error) {
+    console.error('加载股票数据失败:', error);
+    selectedStock.data = null;
+  }
+}
+
+// 清除选择
+function clearSelection() {
+  selectedStock = null;
+  document.getElementById('selected-stock').style.display = 'none';
+}
+
+// 运行回测
+async function runBacktest() {
+  if (!selectedStock || !selectedStock.data) {
+    alert('请先选择股票');
+    return;
+  }
+
+  const loading = document.getElementById('backtest-loading');
+  const resultSection = document.getElementById('result-section');
+  const runButton = document.getElementById('run-backtest');
+
+  loading.style.display = 'block';
+  resultSection.style.display = 'none';
+  runButton.disabled = true;
+
+  try {
+    // 获取参数
+    const strategy = document.getElementById('strategy').value;
+    const initialCapital = parseFloat(document.getElementById('initial-capital').value);
+    const startDate = document.getElementById('start-date').value;
+    const endDate = document.getElementById('end-date').value;
+
+    // 获取K线数据
+    const klines = selectedStock.data.klines || [];
+
+    // 过滤日期范围
+    const filteredKlines = klines.filter(k => k.date >= startDate && k.date <= endDate);
+
+    if (filteredKlines.length === 0) {
+      alert('所选日期范围内没有数据');
+      loading.style.display = 'none';
+      runButton.disabled = false;
+      return;
+    }
+
+    // 根据策略执行回测
+    let result;
+    switch (strategy) {
+      case 'hold':
+        result = backtestHold(filteredKlines, initialCapital);
+        break;
+      case 'sma':
+        const shortPeriod = parseInt(document.getElementById('sma-short').value);
+        const longPeriod = parseInt(document.getElementById('sma-long').value);
+        result = backtestSMA(filteredKlines, initialCapital, shortPeriod, longPeriod);
+        break;
+      case 'dca':
+        const dcaAmount = parseFloat(document.getElementById('dca-amount').value);
+        result = backtestDCA(filteredKlines, initialCapital, dcaAmount);
+        break;
+      default:
+        result = backtestHold(filteredKlines, initialCapital);
+    }
+
+    // 显示结果
+    displayResult(result, initialCapital, filteredKlines);
+
+  } catch (error) {
+    console.error('回测出错:', error);
+    alert('回测出错: ' + error.message);
+  }
+
+  loading.style.display = 'none';
+  runButton.disabled = false;
+}
+
+// 持有策略回测
+function backtestHold(klines, initialCapital) {
+  const firstPrice = klines[0].close;
+  const lastPrice = klines[klines.length - 1].close;
+  const shares = initialCapital / firstPrice;
+  const finalValue = shares * lastPrice;
+
+  const trades = [{
+    date: klines[0].date,
+    type: '买入',
+    price: firstPrice,
+    shares: shares,
+    capital: initialCapital
+  }, {
+    date: klines[klines.length - 1].date,
+    type: '卖出',
+    price: lastPrice,
+    shares: shares,
+    capital: finalValue
+  }];
+
+  // 计算胜率：最后价格 > 买入价格 = 胜
+  const isWin = lastPrice > firstPrice ? 1 : 0;
+
+  return {
+    trades,
+    finalValue,
+    buyCount: 1,
+    sellCount: 1,
+    wins: isWin,
+    equityCurve: klines.map(k => ({
+      date: k.date,
+      value: shares * k.close
+    }))
+  };
+}
+
+// 均线策略回测
+function backtestSMA(klines, initialCapital, shortPeriod, longPeriod) {
+  if (klines.length < longPeriod) {
+    throw new Error('数据量不足，无法计算均线');
+  }
+
+  // 计算均线
+  const smaShort = calculateSMA(klines, shortPeriod);
+  const smaLong = calculateSMA(klines, longPeriod);
+
+  let capital = initialCapital;
+  let shares = 0;
+  const trades = [];
+  const equityCurve = [];
+
+  let buyCount = 0;
+  let sellCount = 0;
+  let wins = 0;
+
+  for (let i = longPeriod; i < klines.length; i++) {
+    const date = klines[i].date;
+    const price = klines[i].close;
+    const short = smaShort[i];
+    const long = smaLong[i];
+
+    // 金叉：短期均线从下往上穿过长期均线
+    if (i > longPeriod && smaShort[i-1] <= smaLong[i-1] && short > long && capital > 0) {
+      shares = capital / price;
+      buyCount++;
+      trades.push({
+        date,
+        type: '买入',
+        price: price,
+        shares: shares,
+        capital: capital
+      });
+      capital = 0;
+    }
+
+    // 死叉：短期均线从上往下穿过长期均线
+    else if (i > longPeriod && smaShort[i-1] >= smaLong[i-1] && short < long && shares > 0) {
+      const sellValue = shares * price;
+      if (trades.length > 0 && trades[trades.length - 1].type === '买入') {
+        const buyPrice = trades[trades.length - 1].price;
+        if (price > buyPrice) wins++;
+      }
+      sellCount++;
+      trades.push({
+        date,
+        type: '卖出',
+        price: price,
+        shares: shares,
+        capital: sellValue
+      });
+      capital = sellValue;
+      shares = 0;
+    }
+
+    // 记录当前市值
+    const currentValue = shares * price + capital;
+    equityCurve.push({ date, value: currentValue });
+  }
+
+  // 如果还有持仓，按最后价格卖出
+  if (shares > 0) {
+    const lastPrice = klines[klines.length - 1].close;
+    const finalValue = shares * lastPrice;
+    trades.push({
+      date: klines[klines.length - 1].date,
+      type: '卖出',
+      price: lastPrice,
+      shares: shares,
+      capital: finalValue
+    });
+    equityCurve[equityCurve.length - 1].value = finalValue;
+  }
+
+  return {
+    trades,
+    finalValue: equityCurve[equityCurve.length - 1].value,
+    buyCount,
+    sellCount,
+    wins,
+    equityCurve
+  };
+}
+
+// 计算简单移动平均线
+function calculateSMA(klines, period) {
+  const sma = [];
+  for (let i = 0; i < klines.length; i++) {
+    if (i < period - 1) {
+      sma.push(null);
+    } else {
+      let sum = 0;
+      for (let j = 0; j < period; j++) {
+        sum += klines[i - j].close;
+      }
+      sma.push(sum / period);
+    }
+  }
+  return sma;
+}
+
+// 定投策略回测
+function backtestDCA(klines, initialCapital, monthlyAmount) {
+  let capital = initialCapital;
+  const trades = [];
+  const equityCurve = [];
+  let totalShares = 0;
+  let buyCount = 0;
+
+  // 按月份分组
+  const monthlyData = {};
+  klines.forEach(k => {
+    const month = k.date.substring(0, 7); // YYYY-MM
+    if (!monthlyData[month]) {
+      monthlyData[month] = k;
+    }
+  });
+
+  const months = Object.keys(monthlyData).sort();
+
+  months.forEach(month => {
+    const dayData = monthlyData[month];
+    const price = dayData.close;
+
+    if (capital >= monthlyAmount) {
+      const shares = monthlyAmount / price;
+      totalShares += shares;
+      buyCount++;
+      capital -= monthlyAmount;
+
+      trades.push({
+        date: dayData.date,
+        type: '买入',
+        price: price,
+        shares: shares,
+        capital: monthlyAmount
+      });
+    }
+
+    const currentValue = totalShares * price + capital;
+    equityCurve.push({ date: dayData.date, value: currentValue });
+  });
+
+  // 最后按收盘价计算
+  const lastPrice = klines[klines.length - 1].close;
+  const finalValue = totalShares * lastPrice + capital;
+
+  // 计算胜率：最终价值 > 总投入 = 胜
+  const totalInvested = initialCapital + (monthlyAmount * buyCount);
+  const isWin = finalValue > totalInvested ? 1 : 0;
+
+  return {
+    trades,
+    finalValue,
+    buyCount,
+    sellCount: 0,
+    wins: isWin,
+    equityCurve
+  };
+}
+
+// 显示回测结果
+function displayResult(result, initialCapital, klines) {
+  const resultSection = document.getElementById('result-section');
+
+  // 获取用户输入的日期
+  const startDateStr = document.getElementById('start-date').value;
+  const endDateStr = document.getElementById('end-date').value;
+
+  // 计算投资年限（使用用户输入的日期）
+  const startDate = new Date(startDateStr);
+  const endDate = new Date(endDateStr);
+  let years = (endDate - startDate) / (1000 * 60 * 60 * 24 * 365);
+
+  // 边界检查：确保 years 是有效的正数
+  if (!years || years <= 0 || isNaN(years)) {
+    years = 1; // 默认设为1年
+  }
+
+  // 获取实际数据覆盖的日期范围
+  const dataStartDate = klines && klines.length > 0 ? klines[0].date : '';
+  const dataEndDate = klines && klines.length > 0 ? klines[klines.length - 1].date : '';
+  const dataYears = klines && klines.length > 1 ?
+    (new Date(dataEndDate) - new Date(dataStartDate)) / (1000 * 60 * 60 * 24 * 365) : 0;
+
+  // 计算收益率
+  let totalReturn = 0;
+  if (result.finalValue && initialCapital && initialCapital > 0) {
+    totalReturn = ((result.finalValue - initialCapital) / initialCapital) * 100;
+  }
+
+  // 计算年化收益率（使用实际数据的日期范围）
+  let annualReturn = 0;
+  // 使用实际数据的年限来计算年化收益率（而非用户输入的日期范围）
+  const calculationYears = (dataYears > 0 && dataYears <= years) ? dataYears : years;
+  if (result.finalValue && initialCapital && result.finalValue > 0 && initialCapital > 0 && calculationYears > 0) {
+    const ratio = result.finalValue / initialCapital;
+    annualReturn = (Math.pow(ratio, 1 / calculationYears) - 1) * 100;
+  }
+
+  // 处理特殊情况
+  if (!isFinite(annualReturn) || isNaN(annualReturn)) {
+    annualReturn = 0;
+  }
+
+  // 胜率计算（必须有结果）
+  let winRate = 0;
+  if (result.sellCount > 0 && result.wins !== undefined && result.wins !== null) {
+    // 有卖出操作：胜率 = 盈利次数 / 卖出次数
+    winRate = (result.wins / result.sellCount) * 100;
+  } else {
+    // 没有卖出操作（如持有、定投）：最终价值 > 初始价值 = 胜
+    winRate = (result.finalValue > initialCapital) ? 100 : 0;
+  }
+
+  // 更新显示
+  const colors = ThemeManager.getColors();
+
+  const returnEl = document.getElementById('total-return');
+  returnEl.textContent = isFinite(totalReturn) ? totalReturn.toFixed(2) + '%' : '0.00%';
+  returnEl.style.color = totalReturn >= 0 ? colors.up : colors.down;
+
+  const annualEl = document.getElementById('annual-return');
+  annualEl.textContent = (isFinite(annualReturn) ? annualReturn.toFixed(2) : '0.00') + '%';
+  annualEl.style.color = annualReturn >= 0 ? colors.up : colors.down;
+
+  document.getElementById('buy-count').textContent = result.buyCount;
+  document.getElementById('sell-count').textContent = result.sellCount;
+  document.getElementById('win-rate').textContent = winRate.toFixed(1) + '%';
+  document.getElementById('final-assets').textContent = formatMoney(result.finalValue);
+
+  // 绘制图表
+  drawBacktestChart(result.equityCurve, initialCapital);
+
+  // 显示交易记录
+  const tradeList = document.getElementById('trade-list');
+  tradeList.innerHTML = `
+    <table style="width: 100%; border-collapse: collapse;">
+      <thead>
+        <tr style="border-bottom: 2px solid var(--border-color);">
+          <th style="padding: 0.5rem; text-align: left;">日期</th>
+          <th style="padding: 0.5rem; text-align: left;">操作</th>
+          <th style="padding: 0.5rem; text-align: right;">价格</th>
+          <th style="padding: 0.5rem; text-align: right;">股数</th>
+          <th style="padding: 0.5rem; text-align: right;">金额</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${result.trades.map(t => `
+          <tr style="border-bottom: 1px solid var(--border-color);">
+            <td style="padding: 0.5rem;">${t.date}</td>
+            <td style="padding: 0.5rem; color: ${t.type === '买入' ? ThemeManager.getColors().down : ThemeManager.getColors().up};">${t.type}</td>
+            <td style="padding: 0.5rem; text-align: right;">${t.price.toFixed(2)}</td>
+            <td style="padding: 0.5rem; text-align: right;">${t.shares.toFixed(2)}</td>
+            <td style="padding: 0.5rem; text-align: right;">${formatMoney(t.capital)}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+
+  resultSection.style.display = 'block';
+}
+
+// 绘制回测图表
+// 按月汇总数据
+function aggregateByMonth(equityCurve) {
+  const monthlyData = {};
+
+  equityCurve.forEach(item => {
+    const month = item.date.substring(0, 7); // YYYY-MM
+    if (!monthlyData[month] || item.date > monthlyData[month].date) {
+      monthlyData[month] = item;
+    }
+  });
+
+  return Object.values(monthlyData).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function drawBacktestChart(equityCurve, initialCapital) {
+  // 保存原始数据
+  equityCurveData = equityCurve;
+  initialCapitalData = initialCapital;
+
+  // 默认按日显示
+  renderChart(equityCurve, initialCapital, 'daily');
+}
+
+// 渲染图表
+function renderChart(equityCurve, initialCapital, viewMode) {
+  const canvas = document.getElementById('backtest-chart');
+  const ctx = canvas.getContext('2d');
+
+  // 根据显示模式处理数据
+  let processedCurve = equityCurve;
+  if (viewMode === 'monthly') {
+    processedCurve = aggregateByMonth(equityCurve);
+  }
+
+  const labels = processedCurve.map(e => e.date);
+  const values = processedCurve.map(e => e.value);
+
+  if (backtestChart) {
+    backtestChart.destroy();
+  }
+
+  const colors = ThemeManager.getColors();
+  const lineColor = values[values.length - 1] >= initialCapital ? colors.up : colors.down;
+
+  // 自定义拖拽平移变量
+  let isDragging = false;
+  let dragStartX = 0;
+  let dragStartIndex = 0;
+
+  backtestChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: '资产净值',
+        data: values,
+        borderColor: lineColor,
+        backgroundColor: lineColor + '20',
+        fill: true,
+        tension: 0.1,
+        pointRadius: viewMode === 'monthly' ? 4 : 1,
+        pointHoverRadius: 6
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'top'
+        },
+        zoom: {
+          zoom: {
+            wheel: {
+              enabled: true,
+              modifierKey: null,
+              speed: 0.1
+            },
+            drag: {
+              enabled: false
+            },
+            pinch: {
+              enabled: true
+            },
+            mode: 'x'
+          },
+          pan: {
+            enabled: false  // 使用自定义拖拽实现
+          }
+        },
+        tooltip: {
+          callbacks: {
+            label: function(context) {
+              return '资产净值: ' + formatMoney(context.raw);
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: {
+            maxRotation: 45,
+            minRotation: 45
+          }
+        },
+        y: {
+          ticks: {
+            callback: value => formatMoney(value)
+          }
+        }
+      }
+    }
+  });
+
+  // 自定义拖拽平移功能
+  const chartArea = canvas.parentElement;
+  chartArea.style.cursor = 'grab';
+  let originalMin = null;
+  let originalMax = null;
+
+  chartArea.addEventListener('mousedown', function(e) {
+    if (e.button !== 0) return; // 只响应左键
+    isDragging = true;
+    dragStartX = e.clientX;
+
+    // 保存当前的显示范围
+    const xScale = backtestChart.scales.x;
+    originalMin = xScale.min;
+    originalMax = xScale.max;
+
+    chartArea.style.cursor = 'grabbing';
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', function(e) {
+    if (!isDragging || originalMin === null) return;
+
+    const xScale = backtestChart.scales.x;
+    const canvasWidth = canvas.width;
+    const deltaX = e.clientX - dragStartX;
+
+    // 计算移动的比例
+    const ratio = deltaX / canvasWidth;
+    const totalRange = labels.length - 1;
+    const currentRange = originalMax - originalMin;
+    const deltaIndex = Math.round(currentRange * ratio);
+
+    // 计算新的范围
+    let newMin = originalMin - deltaIndex;
+    let newMax = originalMax - deltaIndex;
+
+    // 边界检查
+    if (newMin < 0) {
+      newMin = 0;
+      newMax = Math.min(currentRange, labels.length - 1);
+    }
+    if (newMax > labels.length - 1) {
+      newMax = labels.length - 1;
+      newMin = Math.max(0, labels.length - 1 - currentRange);
+    }
+
+    // 更新显示范围
+    backtestChart.options.scales.x.min = newMin;
+    backtestChart.options.scales.x.max = newMax;
+    backtestChart.update('none');
+  });
+
+  document.addEventListener('mouseup', function() {
+    if (isDragging) {
+      isDragging = false;
+      chartArea.style.cursor = 'grab';
+    }
+  });
+
+  document.addEventListener('mouseleave', function() {
+    if (isDragging) {
+      isDragging = false;
+      chartArea.style.cursor = 'grab';
+    }
+  });
+
+  // 更新按钮状态 - 使用计算后的颜色而不是CSS变量
+  const btnDaily = document.getElementById('btn-view-daily');
+  const btnMonthly = document.getElementById('btn-view-monthly');
+  const styles = getComputedStyle(document.documentElement);
+
+  const bgSecondary = styles.getPropertyValue('--bg-secondary').trim() || '#f5f5f5';
+  const textPrimary = styles.getPropertyValue('--text-primary').trim() || '#333333';
+
+  btnDaily.style.background = viewMode === 'daily' ? colors.up : bgSecondary;
+  btnDaily.style.color = viewMode === 'daily' ? 'white' : textPrimary;
+  btnMonthly.style.background = viewMode === 'monthly' ? colors.up : bgSecondary;
+  btnMonthly.style.color = viewMode === 'monthly' ? 'white' : textPrimary;
+}
+
+// 切换显示模式
+function setChartView(viewMode) {
+  if (!equityCurveData || !initialCapitalData) return;
+  renderChart(equityCurveData, initialCapitalData, viewMode);
+}
+
+// 格式化货币
+function formatMoney(amount) {
+  if (amount >= 100000000) {
+    return (amount / 100000000).toFixed(2) + ' 亿';
+  } else if (amount >= 10000) {
+    return (amount / 10000).toFixed(2) + ' 万';
+  }
+  return amount.toFixed(2) + ' 元';
+}
+
+// 暴露函数到全局作用域（供 HTML onclick 调用）
+window.setChartView = setChartView;
+window.selectStock = selectStock;
+window.clearSelection = clearSelection;
+window.runBacktest = runBacktest;

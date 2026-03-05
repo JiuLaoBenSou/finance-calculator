@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>金融计算器 & 股票回测平台</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="header">
+    <nav class="nav">
+      <div class="logo">📊 金融工具箱</div>
+      <button class="mobile-menu-btn">☰</button>
+      <ul class="nav-links">
+        <li><a href="index.html" class="active">首页</a></li>
+        <li><a href="calculator.html">计算器</a></li>
+        <li><a href="backtest.html">回测</a></li>
+        <li><a href="settings.html">设置</a></li>
+        <li><a href="about.html">关于</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main class="main">
+    <section class="hero">
+      <h1>金融计算器 & 股票回测平台</h1>
+      <p>帮助投资者计算收益、模拟投资策略</p>
+    </section>
+
+    <section class="features">
+      <div class="feature-card" onclick="location.href='calculator.html'">
+        <div class="feature-icon">🧮</div>
+        <h3>投资计算器</h3>
+        <p>定投计算、复利计算、股票收益计算...</p>
+      </div>
+
+      <div class="feature-card" onclick="location.href='backtest.html'">
+        <div class="feature-icon">📈</div>
+        <h3>股票回测</h3>
+        <p>用历史数据测试你的投资策略</p>
+      </div>
+
+      <div class="feature-card" onclick="location.href='settings.html'">
+        <div class="feature-icon">⚙️</div>
+        <h3>主题设置</h3>
+        <p>自定义界面风格和颜色</p>
+      </div>
+    </section>
+
+    <section class="intro">
+      <h2>功能介绍</h2>
+      <div class="intro-grid">
+        <div class="intro-item">
+          <h4>🧮 定投计算器</h4>
+          <p>计算定期投资的预期收益</p>
+        </div>
+        <div class="intro-item">
+          <h4>💰 复利计算器</h4>
+          <p>展示复利增长的神奇效果</p>
+        </div>
+        <div class="intro-item">
+          <h4>📊 股票收益计算</h4>
+          <p>计算买卖股票的详细盈亏</p>
+        </div>
+        <div class="intro-item">
+          <h4>🔍 PE 估值计算</h4>
+          <p>估算股票合理价格区间</p>
+        </div>
+        <div class="intro-item">
+          <h4>📈 均线策略回测</h4>
+          <p>测试金叉死叉策略效果</p>
+        </div>
+        <div class="intro-item">
+          <h4>📅 定投回测</h4>
+          <p>模拟每月定投的收益情况</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p>© 2026 金融计算器 & 股票回测平台</p>
+  </footer>
+
+  <script src="js/theme.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>

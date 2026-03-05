@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>股票回测 - 金融工具箱</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="header">
+    <nav class="nav">
+      <div class="logo">📊 金融工具箱</div>
+      <button class="mobile-menu-btn">☰</button>
+      <ul class="nav-links">
+        <li><a href="index.html">首页</a></li>
+        <li><a href="calculator.html">计算器</a></li>
+        <li><a href="backtest.html" class="active">回测</a></li>
+        <li><a href="settings.html">设置</a></li>
+        <li><a href="about.html">关于</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main class="main">
+    <h1 class="page-title">📈 股票回测</h1>
+
+    <!-- 回测参数 -->
+    <section class="calculator-section">
+      <h2>选择股票</h2>
+
+      <div class="search-box">
+        <input type="text" id="stock-search" class="search-input" placeholder="输入股票代码或名称搜索..." autocomplete="off">
+        <div id="search-results" class="search-results"></div>
+      </div>
+
+      <div id="selected-stock" style="display: none; margin-bottom: 1.5rem; padding: 1rem; background: var(--bg-secondary); border-radius: 8px;">
+        <div style="margin-bottom: 0.5rem;">
+          <strong>已选择：</strong><span id="selected-stock-name"></span> (<span id="selected-stock-code"></span>)
+        </div>
+        <div id="stock-data-range" style="font-size: 0.85rem; color: var(--text-secondary);"></div>
+        <button onclick="clearSelection()" style="margin-left: 1rem; padding: 0.25rem 0.5rem; cursor: pointer;">清除</button>
+      </div>
+
+      <h2>回测参数</h2>
+      <div class="form-group">
+        <label>回测策略</label>
+        <select id="strategy">
+          <option value="hold">持有策略（一直持有）</option>
+          <option value="sma">均线策略（金叉买入，死叉卖出）</option>
+          <option value="dca">定投策略（每月买入）</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>初始资金（元）</label>
+        <input type="number" id="initial-capital" value="100000" min="0">
+      </div>
+
+      <div class="form-group">
+        <label>回测开始日期</label>
+        <input type="date" id="start-date" value="2024-01-01" min="2015-01-01" max="2026-12-31">
+      </div>
+
+      <div class="form-group">
+        <label>回测结束日期</label>
+        <input type="date" id="end-date" value="2025-12-31" min="2015-01-01" max="2026-12-31">
+      </div>
+
+      <!-- 均线策略参数 -->
+      <div id="sma-params" style="display: none;">
+        <div class="form-group">
+          <label>短期均线天数</label>
+          <input type="number" id="sma-short" value="5" min="1">
+        </div>
+        <div class="form-group">
+          <label>长期均线天数</label>
+          <input type="number" id="sma-long" value="20" min="1">
+        </div>
+      </div>
+
+      <!-- 定投策略参数 -->
+      <div id="dca-params" style="display: none;">
+        <div class="form-group">
+          <label>每月定投金额（元）</label>
+          <input type="number" id="dca-amount" value="1000" min="0">
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="run-backtest" onclick="runBacktest()">开始回测</button>
+
+      <div id="backtest-loading" class="loading" style="display: none;">
+        <div class="spinner"></div>
+        <p>正在回测中...</p>
+      </div>
+    </section>
+
+    <!-- 回测结果 -->
+    <section id="result-section" style="display: none;">
+      <div class="backtest-summary">
+        <div class="summary-card">
+          <div class="label">总收益率</div>
+          <div class="value" id="total-return">-</div>
+        </div>
+        <div class="summary-card">
+          <div class="label">年化收益率</div>
+          <div class="value" id="annual-return">-</div>
+        </div>
+        <div class="summary-card">
+          <div class="label">买入次数</div>
+          <div class="value" id="buy-count">-</div>
+        </div>
+        <div class="summary-card">
+          <div class="label">卖出次数</div>
+          <div class="value" id="sell-count">-</div>
+        </div>
+        <div class="summary-card">
+          <div class="label">胜率</div>
+          <div class="value" id="win-rate">-</div>
+        </div>
+        <div class="summary-card">
+          <div class="label">最终资产</div>
+          <div class="value" id="final-assets">-</div>
+        </div>
+      </div>
+
+      <section class="calculator-section">
+        <h3>收益曲线</h3>
+        <div style="margin-bottom: 1rem;">
+          <button class="btn" id="btn-view-daily" onclick="setChartView('daily')">按日</button>
+          <button class="btn" id="btn-view-monthly" onclick="setChartView('monthly')">按月</button>
+          <span style="margin-left: 1rem; color: var(--text-secondary); font-size: 0.9rem;">提示：鼠标滚轮缩放，左键拖拽平移</span>
+        </div>
+        <div class="chart-container" style="height: 400px;">
+          <canvas id="backtest-chart"></canvas>
+        </div>
+      </section>
+
+      <section class="calculator-section">
+        <h3>交易记录</h3>
+        <div id="trade-list" style="max-height: 400px; overflow-y: auto;"></div>
+      </section>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p>© 2026 金融计算器 & 股票回测平台</p>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+  <script src="js/theme.js"></script>
+  <script src="js/main.js"></script>
+  <script src="js/backtest.js"></script>
+</body>
+</html>

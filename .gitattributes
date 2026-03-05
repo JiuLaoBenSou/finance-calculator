@@ -1,0 +1,10 @@
+# Git LFS 配置 - 只跟踪股票K线数据
+data/sh*.json filter=lfs diff=lfs merge=lfs -text
+data/sz*.json filter=lfs diff=lfs merge=lfs -text
+# stocks.json 不使用 LFS（GitHub Pages 需要）
+# 股票列表文件较小，直接存储
+# 忽略文件
+node_modules/
+.DS_Store
+*.log
+data-compressed.json filter=lfs diff=lfs merge=lfs -text
