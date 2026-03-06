@@ -11,7 +11,8 @@ const zlib = require('zlib');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const COMPRESSED_FILE = path.join(__dirname, '..', 'data-compressed.json');
-const PROXY = 'http://127.0.0.1:7890';
+// 代理配置（本地开发使用，GitHub Actions 中为空）
+const PROXY = process.env.HTTP_PROXY || process.env.HTTPS_PROXY || '';
 
 // API 配置
 const TENCENT_API = 'https://web.ifzq.gtimg.cn';
@@ -20,7 +21,8 @@ const EASTMONEY_API = 'https://push2.eastmoney.com';
 // 使用 curl 获取数据
 function fetchWithCurl(url) {
   return new Promise((resolve, reject) => {
-    const cmd = `curl -x "${PROXY}" -s -L "${url}"`;
+    const proxyFlag = PROXY ? `-x "${PROXY}"` : '';
+    const cmd = `curl ${proxyFlag} -s -L "${url}"`;
     require('child_process').exec(cmd, { timeout: 30000 }, (error, stdout) => {
       if (error) {
         resolve(null);
