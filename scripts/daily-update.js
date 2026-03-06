@@ -225,7 +225,6 @@ async function updateChunk(chunkData, ratios) {
 
   let updated = 0;
   let failed = 0;
-  let failedCodes = []; // 记录失败的股票代码
   let apiStats = { tencent: 0, eastmoney: 0, none: 0 };
 
   // 并发更新（每次20个）
@@ -249,7 +248,6 @@ async function updateChunk(chunkData, ratios) {
         apiStats[result.api] = (apiStats[result.api] || 0) + 1;
       } else {
         failed++;
-        failedCodes.push(code);
         apiStats[result.api] = (apiStats[result.api] || 0) + 1;
       }
     }
@@ -259,37 +257,7 @@ async function updateChunk(chunkData, ratios) {
     }
   }
 
-  // 校验流程：重试失败的股票
-  if (failedCodes.length > 0) {
-    console.log(`\n🔄 开始校验：重试 ${failedCodes.length} 只失败的股票...`);
-
-    const retryResults = await Promise.all(
-      failedCodes.map(async (code) => {
-        const stock = chunkData[code];
-        return { code, result: await updateStock(code, stock.k || [], ratios) };
-      })
-    );
-
-    let retrySuccess = 0;
-    for (const { code, result } of retryResults) {
-      const stock = chunkData[code];
-      if (result.updated && result.klines) {
-        stock.k = result.klines;
-        retrySuccess++;
-      }
-    }
-
-    const remainingFailed = failedCodes.length - retrySuccess;
-    console.log(`   校验完成: 重试成功 ${retrySuccess}, 仍失败 ${remainingFailed}`);
-
-    // 更新统计
-    updated += retrySuccess;
-    failed = remainingFailed;
-  } else {
-    console.log(`   ✅ 校验通过：所有股票更新成功`);
-  }
-
-  console.log(`   合计: 更新${updated}, 失败${failed}, API: 腾讯${apiStats.tencent}, 东财${apiStats.eastmoney}`);
+  console.log(`   块更新完成: 更新${updated}, 失败${failed}`);
   return { updated, failed };
 }
 
@@ -313,6 +281,8 @@ async function main() {
   const ratios = await testAPISpeed(testCodes);
 
   let totalUpdated = 0;
+  let totalFailed = 0;
+  const allFailedStocks = []; // 记录所有失败的股票
 
   // 4. 处理所有块
   for (let i = 0; i < chunks.length; i++) {
@@ -329,6 +299,17 @@ async function main() {
     // 更新
     const result = await updateChunk(chunkData, ratios);
     totalUpdated += result.updated;
+    totalFailed += result.failed;
+
+    // 记录失败的股票代码和所在块
+    const codes = Object.keys(chunkData);
+    for (const code of codes) {
+      const stock = chunkData[code];
+      const latestDate = stock.k && stock.k.length > 0 ? stock.k[stock.k.length - 1].date : null;
+      if (!latestDate || stock.k.length === 0) {
+        allFailedStocks.push({ code, chunkIndex: i, stock });
+      }
+    }
 
     // 重新压缩
     const newCompressed = compressChunk(chunkData);
@@ -340,9 +321,60 @@ async function main() {
     console.log(`   ✓ 块 ${i + 1} 已保存`);
   }
 
+  // 5. 最终校验：重试所有失败的股票
+  if (allFailedStocks.length > 0) {
+    console.log(`\n🔄 最终校验：重试 ${allFailedStocks.length} 只失败的股票...`);
+
+    let retrySuccess = 0;
+    const CONCURRENCY = 20;
+
+    for (let i = 0; i < allFailedStocks.length; i += CONCURRENCY) {
+      const batch = allFailedStocks.slice(i, i + CONCURRENCY);
+      const results = await Promise.all(
+        batch.map(async ({ code, stock }) => {
+          return { code, result: await updateStock(code, stock.k || [], ratios) };
+        })
+      );
+
+      for (const { code, result } of results) {
+        // 找到对应的块并更新
+        const failedStock = allFailedStocks.find(s => s.code === code);
+        if (failedStock && result.updated && result.klines) {
+          failedStock.stock.k = result.klines;
+          retrySuccess++;
+
+          // 更新到对应的块
+          if (failedStock.chunkIndex === 0) {
+            testChunk[code] = failedStock.stock;
+          } else {
+            const chunkData = decompressChunk(chunks[failedStock.chunkIndex].data);
+            chunkData[code] = failedStock.stock;
+            chunks[failedStock.chunkIndex].data = compressChunk(chunkData);
+          }
+        }
+      }
+
+      if ((i + CONCURRENCY) % 200 === 0 || i + CONCURRENCY >= allFailedStocks.length) {
+        console.log(`   重试进度: ${Math.min(i + CONCURRENCY, allFailedStocks.length)}/${allFailedStocks.length}`);
+      }
+    }
+
+    // 保存重试后的结果
+    chunks[0].data = compressChunk(testChunk);
+    fs.writeFileSync(COMPRESSED_FILE, JSON.stringify(chunks));
+
+    const remainingFailed = allFailedStocks.length - retrySuccess;
+    console.log(`   校验完成: 重试成功 ${retrySuccess}, 仍失败 ${remainingFailed}`);
+    totalUpdated += retrySuccess;
+    totalFailed = remainingFailed;
+  } else {
+    console.log(`\n✅ 最终校验通过：所有股票更新成功`);
+  }
+
   console.log('\n========================================');
   console.log('✅ 每日更新完成!');
   console.log(`   总更新: ${totalUpdated} 只`);
+  console.log(`   失败: ${totalFailed} 只`);
   console.log(`   文件: ${COMPRESSED_FILE}`);
   console.log('========================================\n');
 
