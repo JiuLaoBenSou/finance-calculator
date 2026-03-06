@@ -1,0 +1,11 @@
+{
+  "name": "finance-calculator",
+  "version": "1.0.0",
+  "description": "金融计算器 & 股票回测平台",
+  "scripts": {
+    "update-data": "node scripts/update-data.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.0"
+  }
+}
