@@ -225,6 +225,7 @@ async function updateChunk(chunkData, ratios) {
 
   let updated = 0;
   let failed = 0;
+  let failedCodes = []; // 记录失败的股票代码
   let apiStats = { tencent: 0, eastmoney: 0, none: 0 };
 
   // 并发更新（每次20个）
@@ -248,16 +249,47 @@ async function updateChunk(chunkData, ratios) {
         apiStats[result.api] = (apiStats[result.api] || 0) + 1;
       } else {
         failed++;
+        failedCodes.push(code);
         apiStats[result.api] = (apiStats[result.api] || 0) + 1;
       }
     }
 
     if ((i + CONCURRENCY) % 200 === 0 || i + CONCURRENCY >= codes.length) {
-      console.log(`   进度: ${Math.min(i + CONCURRENCY, codes.length)}/${codes.length}, 已更新: ${updated}`);
+      console.log(`   进度: ${Math.min(i + CONCURRENCY, codes.length)}/${codes.length}, 已更新: ${updated}, 失败: ${failed}`);
     }
   }
 
-  console.log(`   完成: 更新${updated}, 失败${failed}, API: 腾讯${apiStats.tencent}, 东财${apiStats.eastmoney}`);
+  // 校验流程：重试失败的股票
+  if (failedCodes.length > 0) {
+    console.log(`\n🔄 开始校验：重试 ${failedCodes.length} 只失败的股票...`);
+
+    const retryResults = await Promise.all(
+      failedCodes.map(async (code) => {
+        const stock = chunkData[code];
+        return { code, result: await updateStock(code, stock.k || [], ratios) };
+      })
+    );
+
+    let retrySuccess = 0;
+    for (const { code, result } of retryResults) {
+      const stock = chunkData[code];
+      if (result.updated && result.klines) {
+        stock.k = result.klines;
+        retrySuccess++;
+      }
+    }
+
+    const remainingFailed = failedCodes.length - retrySuccess;
+    console.log(`   校验完成: 重试成功 ${retrySuccess}, 仍失败 ${remainingFailed}`);
+
+    // 更新统计
+    updated += retrySuccess;
+    failed = remainingFailed;
+  } else {
+    console.log(`   ✅ 校验通过：所有股票更新成功`);
+  }
+
+  console.log(`   合计: 更新${updated}, 失败${failed}, API: 腾讯${apiStats.tencent}, 东财${apiStats.eastmoney}`);
   return { updated, failed };
 }
 
