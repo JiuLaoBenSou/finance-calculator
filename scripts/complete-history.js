@@ -162,12 +162,13 @@ async function main() {
   const chunks = JSON.parse(fileContent);
   console.log(`   共有 ${chunks.length} 个数据块\n`);
 
-  // 2. 选择要补全的股票（从第一个块选）
+  // 2. 选择要补全的股票（从第一个块选5只测试）
   const testChunk = decompressChunk(chunks[0].data);
-  const codes = Object.keys(testChunk);
+  const allCodes = Object.keys(testChunk);
+  const codes = allCodes.slice(0, 5); // 只测试5只
 
-  console.log(`📋 将补全 ${codes.length} 只股票的历史数据`);
-  console.log('⚠️  这可能需要很长时间...\n');
+  console.log(`📋 测试补全 ${codes.length} 只股票: ${codes.join(', ')}`);
+  console.log('⚠️  测试阶段...\n');
 
   // 3. 逐个补全（并发5个）
   const CONCURRENCY = 5;
