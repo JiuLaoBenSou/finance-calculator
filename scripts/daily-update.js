@@ -1,8 +1,12 @@
 /**
  * 每日数据更新脚本
- * 流程：解压块 → 腾讯API更新 → 东方财富API更新 → 重新压缩 → 保存
- *
- * 使用方法: node scripts/daily-update.js
+ * 流程：
+ * 1. 加载12个块，解压1个块
+ * 2. 跑50个数据测试两个API的速度
+ * 3. 根据速度分配工作量
+ * 4. 解压剩下的所有块并更新
+ * 5. 重新压缩保存
+ * 6. 推送至GitHub
  */
 
 const fs = require('fs');
@@ -11,7 +15,6 @@ const zlib = require('zlib');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const COMPRESSED_FILE = path.join(__dirname, '..', 'data-compressed.json');
-// 代理配置（本地开发使用，GitHub Actions 中为空）
 const PROXY = process.env.HTTP_PROXY || process.env.HTTPS_PROXY || '';
 
 // API 配置
@@ -20,18 +23,22 @@ const EASTMONEY_API = 'https://push2.eastmoney.com';
 
 // 使用 curl 获取数据
 function fetchWithCurl(url) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const proxyFlag = PROXY ? `-x "${PROXY}"` : '';
-    const cmd = `curl ${proxyFlag} -s -L "${url}"`;
+    const cmd = `curl ${proxyFlag} -s -L -w "%{time_total}" -o - "${url}"`;
     require('child_process').exec(cmd, { timeout: 30000 }, (error, stdout) => {
-      if (error) {
-        resolve(null);
+      if (error || !stdout) {
+        resolve({ time: 999, data: null });
         return;
       }
+      // 提取时间（最后部分）和数据
+      const match = stdout.match(/([\d.]+)$/);
+      const time = match ? parseFloat(match[1]) : 999;
+      const dataStr = stdout.replace(/[\d.]+$/, '').trim();
       try {
-        resolve(JSON.parse(stdout));
+        resolve({ time, data: JSON.parse(dataStr) });
       } catch (e) {
-        resolve(null);
+        resolve({ time: 999, data: null });
       }
     });
   });
@@ -39,82 +46,42 @@ function fetchWithCurl(url) {
 
 // 腾讯API获取单只股票K线
 async function getKlineFromTencent(code, days = 100) {
-  try {
-    const url = `${TENCENT_API}/appstock/app/fqkline/get?param=${code},day,,,${days},qfq`;
-    const data = await fetchWithCurl(url);
+  const url = `${TENCENT_API}/appstock/app/fqkline/get?param=${code},day,,,${days},qfq`;
+  const { time, data } = await fetchWithCurl(url);
 
-    if (data?.data?.[code]) {
-      const stockData = data.data[code];
-      const klines = stockData.qfqday || stockData.day || [];
-      if (klines.length > 0) {
-        return klines.map(k => ({
-          date: k[0],
-          open: parseFloat(k[1]),
-          high: parseFloat(k[2]),
-          low: parseFloat(k[3]),
-          close: parseFloat(k[4]),
-          volume: parseFloat(k[5])
-        }));
-      }
+  if (data?.data?.[code]) {
+    const stockData = data.data[code];
+    const klines = stockData.qfqday || stockData.day || [];
+    if (klines.length > 0) {
+      return {
+        time,
+        klines: klines.map(k => ({
+          date: k[0], open: parseFloat(k[1]), high: parseFloat(k[2]),
+          low: parseFloat(k[3]), close: parseFloat(k[4]), volume: parseFloat(k[5])
+        }))
+      };
     }
-    return null;
-  } catch (e) {
-    return null;
   }
+  return { time, klines: null };
 }
 
 // 东方财富API获取单只股票最新K线
 async function getKlineFromEastmoney(code, days = 100) {
-  try {
-    const secid = code.startsWith('sh') ? `1.${code.slice(2)}` : `0.${code.slice(2)}`;
-    const url = `${EASTMONEY_API}/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&end=20500101&lmt=${days}`;
-    const data = await fetchWithCurl(url);
+  const secid = code.startsWith('sh') ? `1.${code.slice(2)}` : `0.${code.slice(2)}`;
+  const url = `${EASTMONEY_API}/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&end=20500101&lmt=${days}`;
+  const { time, data } = await fetchWithCurl(url);
 
-    if (data?.data?.klines) {
-      return data.data.klines.map(k => {
+  if (data?.data?.klines) {
+    return {
+      time,
+      klines: data.data.klines.map(k => {
         const arr = k.split(',');
-        return {
-          date: arr[0],
-          open: parseFloat(arr[1]),
-          high: parseFloat(arr[2]),
-          low: parseFloat(arr[3]),
-          close: parseFloat(arr[4]),
-          volume: parseFloat(arr[5])
-        };
-      });
-    }
-    return null;
-  } catch (e) {
-    return null;
+        return { date: arr[0], open: parseFloat(arr[1]), high: parseFloat(arr[2]),
+          low: parseFloat(arr[3]), close: parseFloat(arr[4]), volume: parseFloat(arr[5]) };
+      })
+    };
   }
-}
-
-// 获取单只股票最新数据（腾讯+东方财富双源校验）
-async function getLatestKlines(code, existingKlines = []) {
-  // 腾讯API获取
-  const tencentKlines = await getKlineFromTencent(code, 100);
-  // 东方财富API获取
-  const eastmoneyKlines = await getKlineFromEastmoney(code, 100);
-
-  // 选择更长的时间序列
-  let newKlines = tencentKlines?.length >= eastmoneyKlines?.length ? tencentKlines : eastmoneyKlines;
-
-  if (!newKlines || newKlines.length === 0) {
-    return existingKlines;
-  }
-
-  // 如果已有数据，合并（去重）
-  if (existingKlines.length > 0) {
-    const existingDates = new Set(existingKlines.map(k => k.date));
-    const uniqueNew = newKlines.filter(k => !existingDates.has(k.date));
-    // 按日期排序合并
-    const combined = [...existingKlines, ...uniqueNew].sort((a, b) =>
-      new Date(a.date) - new Date(b.date)
-    );
-    return combined;
-  }
-
-  return newKlines;
+  return { time, klines: null };
 }
 
 // 解压单个块
@@ -131,45 +98,136 @@ function compressChunk(stockData) {
   return compressed.toString('base64');
 }
 
-// 更新单个块的数据
-async function updateChunk(chunkData, chunkIndex) {
+// 测试API速度
+async function testAPISpeed(stockCodes) {
+  console.log('\n🧪 测试API速度...');
+
+  const tencentTimes = [];
+  const eastmoneyTimes = [];
+
+  for (const code of stockCodes.slice(0, 50)) {
+    const [tencent, eastmoney] = await Promise.all([
+      getKlineFromTencent(code),
+      getKlineFromEastmoney(code)
+    ]);
+
+    if (tencent.klines) tencentTimes.push(tencent.time);
+    if (eastmoney.klines) eastmoneyTimes.push(eastmoney.time);
+
+    await new Promise(r => setTimeout(r, 100));
+  }
+
+  const avgTencent = tencentTimes.length > 0 ? tencentTimes.reduce((a, b) => a + b, 0) / tencentTimes.length : 999;
+  const avgEastmoney = eastmoneyTimes.length > 0 ? eastmoneyTimes.reduce((a, b) => a + b, 0) / eastmoneyTimes.length : 999;
+
+  console.log(`   腾讯API平均耗时: ${avgTencent.toFixed(3)}s`);
+  console.log(`   东方财富API平均耗时: ${avgEastmoney.toFixed(3)}s`);
+
+  // 根据速度分配任务
+  const totalSpeed = avgTencent + avgEastmoney;
+  const tencentRatio = totalSpeed > 0 ? (totalSpeed - avgTencent) / totalSpeed : 0.5;
+  const eastmoneyRatio = totalSpeed > 0 ? (totalSpeed - avgEastmoney) / totalSpeed : 0.5;
+
+  console.log(`   分配: 腾讯 ${(tencentRatio * 100).toFixed(0)}%, 东方财富 ${(eastmoneyRatio * 100).toFixed(0)}%`);
+
+  return { tencentRatio, eastmoneyRatio, avgTencent, avgEastmoney };
+}
+
+// 更新单个股票数据
+async function updateStock(code, existingKlines, ratios) {
+  const { tencentRatio, eastmoneyRatio } = ratios;
+
+  // 决定用哪个API
+  const useTencent = tencentRatio >= 0.3;
+  const useEastmoney = eastmoneyRatio >= 0.3;
+
+  let newKlines = null;
+  let usedAPI = 'none';
+
+  if (useTencent) {
+    const result = await getKlineFromTencent(code, 100);
+    if (result.klines) {
+      newKlines = result.klines;
+      usedAPI = 'tencent';
+    }
+  }
+
+  if (!newKlines && useEastmoney) {
+    const result = await getKlineFromEastmoney(code, 100);
+    if (result.klines) {
+      newKlines = result.klines;
+      usedAPI = 'eastmoney';
+    }
+  }
+
+  // 如果两个API都失败，尝试另一个
+  if (!newKlines && usedAPI !== 'tencent') {
+    const result = await getKlineFromTencent(code, 100);
+    if (result.klines) {
+      newKlines = result.klines;
+      usedAPI = 'tencent';
+    }
+  }
+
+  if (!newKlines && usedAPI !== 'eastmoney') {
+    const result = await getKlineFromEastmoney(code, 100);
+    if (result.klines) {
+      newKlines = result.klines;
+      usedAPI = 'eastmoney';
+    }
+  }
+
+  if (!newKlines || newKlines.length === 0) {
+    return { updated: false, api: 'none' };
+  }
+
+  // 合并数据
+  if (existingKlines.length > 0) {
+    const existingDates = new Set(existingKlines.map(k => k.date));
+    const uniqueNew = newKlines.filter(k => !existingDates.has(k.date));
+    const combined = [...existingKlines, ...uniqueNew].sort((a, b) =>
+      new Date(a.date) - new Date(b.date)
+    );
+    newKlines = combined;
+  }
+
+  return { updated: newKlines.length > existingKlines.length, klines: newKlines, api: usedAPI };
+}
+
+// 更新单个块
+async function updateChunk(chunkData, ratios) {
   const codes = Object.keys(chunkData);
-  console.log(`\n📦 块 ${chunkIndex}: ${codes.length} 只股票`);
+  console.log(`\n📦 处理 ${codes.length} 只股票`);
 
   let updated = 0;
   let failed = 0;
+  let apiStats = { tencent: 0, eastmoney: 0, none: 0 };
 
   for (let i = 0; i < codes.length; i++) {
     const code = codes[i];
     const stock = chunkData[code];
-
-    // 已有K线数据
     const existingKlines = stock.k || [];
 
-    // 获取最新数据
-    const newKlines = await getLatestKlines(code, existingKlines);
+    const result = await updateStock(code, existingKlines, ratios);
 
-    if (newKlines.length > existingKlines.length) {
-      // 有新数据
-      stock.k = newKlines;
+    if (result.updated && result.klines) {
+      stock.k = result.klines;
       updated++;
+    } else if (!result.updated) {
+      // 数据未更新（可能是同一天）
+    }
 
-      if (updated % 50 === 0) {
-        console.log(`  ✓ 已更新 ${updated} 只`);
-      }
-    } else if (newKlines.length > 0 && newKlines.length === existingKlines.length) {
-      // 数据日期相同，无新数据
-    } else {
-      failed++;
+    apiStats[result.api] = (apiStats[result.api] || 0) + 1;
+
+    if ((i + 1) % 100 === 0) {
+      console.log(`   进度: ${i + 1}/${codes.length}`);
     }
 
     // 避免请求过快
-    if (i % 10 === 0) {
-      await new Promise(r => setTimeout(r, 200));
-    }
+    await new Promise(r => setTimeout(r, 50));
   }
 
-  console.log(`  块 ${chunkIndex} 更新完成: ${updated} 只更新, ${failed} 只失败`);
+  console.log(`   更新: ${updated}, 失败: ${failed}, API使用: 腾讯${apiStats.tencent}, 东财${apiStats.eastmoney}`);
   return { updated, failed };
 }
 
@@ -184,27 +242,38 @@ async function main() {
   const chunks = JSON.parse(fileContent);
   console.log(`   共有 ${chunks.length} 个数据块\n`);
 
-  let totalUpdated = 0;
-  let totalFailed = 0;
+  // 2. 解压第一个块测试速度
+  console.log('📦 解压第一个块用于测试...');
+  const testChunk = decompressChunk(chunks[0].data);
+  const testCodes = Object.keys(testChunk);
 
-  // 2. 逐块处理
+  // 3. 测试API速度
+  const ratios = await testAPISpeed(testCodes);
+
+  let totalUpdated = 0;
+
+  // 4. 处理所有块
   for (let i = 0; i < chunks.length; i++) {
-    console.log(`\n========== 正在处理块 ${i + 1}/${chunks.length} ==========`);
+    console.log(`\n========== 块 ${i + 1}/${chunks.length} ==========`);
 
     // 解压
-    const chunkData = decompressChunk(chunks[i].data);
+    let chunkData;
+    if (i === 0) {
+      chunkData = testChunk; // 第一个块已经解压
+    } else {
+      chunkData = decompressChunk(chunks[i].data);
+    }
 
     // 更新
-    const result = await updateChunk(chunkData, i);
+    const result = await updateChunk(chunkData, ratios);
     totalUpdated += result.updated;
-    totalFailed += result.failed;
 
     // 重新压缩
     const newCompressed = compressChunk(chunkData);
     chunks[i].data = newCompressed;
     chunks[i].updatedAt = new Date().toISOString();
 
-    // 保存进度（每处理完一块就保存）
+    // 保存进度
     fs.writeFileSync(COMPRESSED_FILE, JSON.stringify(chunks));
     console.log(`   ✓ 块 ${i + 1} 已保存`);
   }
@@ -212,11 +281,9 @@ async function main() {
   console.log('\n========================================');
   console.log('✅ 每日更新完成!');
   console.log(`   总更新: ${totalUpdated} 只`);
-  console.log(`   失败: ${totalFailed} 只`);
   console.log(`   文件: ${COMPRESSED_FILE}`);
   console.log('========================================\n');
 
-  // 输出文件大小
   const stats = fs.statSync(COMPRESSED_FILE);
   console.log(`📊 文件大小: ${(stats.size / 1024 / 1024).toFixed(2)} MB`);
 }
