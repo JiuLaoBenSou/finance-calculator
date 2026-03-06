@@ -96,56 +96,6 @@ function compressChunk(stockData) {
   return compressed.toString('base64');
 }
 
-// 测试API速度
-async function testAPISpeed(stockCodes) {
-  console.log('\n🧪 测试API速度（取前50个股票）...');
-
-  const tencentTimes = [];
-  const eastmoneyTimes = [];
-
-  const testCodes = stockCodes.slice(0, 50);
-  console.log(`   测试股票: ${testCodes.slice(0, 5).join(', ')}...`);
-
-  let success = 0;
-  for (let i = 0; i < testCodes.length; i++) {
-    const code = testCodes[i];
-    const [tencent, eastmoney] = await Promise.all([
-      getKlineFromTencent(code),
-      getKlineFromEastmoney(code)
-    ]);
-
-    if (tencent.klines) {
-      tencentTimes.push(tencent.time);
-      success++;
-    }
-    if (eastmoney.klines) {
-      eastmoneyTimes.push(eastmoney.time);
-      success++;
-    }
-
-    if ((i + 1) % 10 === 0) {
-      console.log(`   进度: ${i + 1}/50, 成功: ${success}`);
-    }
-
-    await new Promise(r => setTimeout(r, 50));
-  }
-
-  console.log(`   API测试完成, 成功: ${success}次`);
-
-  const avgTencent = tencentTimes.length > 0 ? tencentTimes.reduce((a, b) => a + b, 0) / tencentTimes.length : 999;
-  const avgEastmoney = eastmoneyTimes.length > 0 ? eastmoneyTimes.reduce((a, b) => a + b, 0) / eastmoneyTimes.length : 999;
-
-  console.log(`   腾讯API成功: ${tencentTimes.length}次`);
-  console.log(`   东方财富API成功: ${eastmoneyTimes.length}次（备用）`);
-
-  // 只使用腾讯API
-  const tencentRatio = 1;
-  const eastmoneyRatio = 0;
-
-  console.log(`   分配: 腾讯 100%`);
-
-  return { tencentRatio, eastmoneyRatio, avgTencent, avgEastmoney };
-}
 
 // 更新单个股票数据（只使用腾讯API）
 async function updateStock(code, existingKlines) {
@@ -234,8 +184,8 @@ async function main() {
   const testChunk = decompressChunk(chunks[0].data);
   const testCodes = Object.keys(testChunk);
 
-  // 3. 测试API速度
-  const ratios = await testAPISpeed(testCodes);
+  // 3. 只使用腾讯API
+  console.log('\n📡 使用腾讯API更新数据');
 
   let totalUpdated = 0;
   let totalFailed = 0;
