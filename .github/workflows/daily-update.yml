@@ -9,7 +9,7 @@ on:
   # 代码推送时触发（测试用）
   push:
     branches:
-      - main
+      - master
     paths:
       - 'scripts/daily-update.js'
 
@@ -23,6 +23,7 @@ jobs:
         with:
           fetch-depth: 0  # 获取完整历史，用于推送
           lfs: true        # 拉取 LFS 文件
+          branch: master   # 指定分支
 
       - name: 拉取 LFS 文件
         run: |
@@ -68,7 +69,7 @@ jobs:
         run: |
           git add data-compressed.json
           git commit -m "daily: 更新股票数据 $(date +'%Y-%m-%d')"
-          git push origin main
+          git push origin master
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
