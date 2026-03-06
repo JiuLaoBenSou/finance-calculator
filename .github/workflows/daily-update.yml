@@ -43,7 +43,10 @@ jobs:
         env:
           HTTP_PROXY: ${{ secrets.HTTP_PROXY }}
           HTTPS_PROXY: ${{ secrets.HTTPS_PROXY }}
-        run: node scripts/daily-update.js
+        run: |
+          echo "=== 开始执行更新脚本 ==="
+          node scripts/daily-update.js 2>&1
+          echo "=== 脚本执行完成 ==="
 
       - name: 检查是否有更新
         id: check

@@ -25,18 +25,16 @@ const EASTMONEY_API = 'https://push2.eastmoney.com';
 function fetchWithCurl(url) {
   return new Promise((resolve) => {
     const proxyFlag = PROXY ? `-x "${PROXY}"` : '';
-    const cmd = `curl ${proxyFlag} -s -L -w "%{time_total}" -o - "${url}"`;
-    require('child_process').exec(cmd, { timeout: 30000 }, (error, stdout) => {
+    const cmd = `curl ${proxyFlag} -s -L --connect-timeout 10 --max-time 15 "${url}"`;
+    require('child_process').exec(cmd, { timeout: 20000 }, (error, stdout, stderr) => {
       if (error || !stdout) {
+        console.log(`   API请求失败: ${url.substring(0, 50)}...`);
         resolve({ time: 999, data: null });
         return;
       }
-      // 提取时间（最后部分）和数据
-      const match = stdout.match(/([\d.]+)$/);
-      const time = match ? parseFloat(match[1]) : 999;
-      const dataStr = stdout.replace(/[\d.]+$/, '').trim();
       try {
-        resolve({ time, data: JSON.parse(dataStr) });
+        const data = JSON.parse(stdout);
+        resolve({ time: 1.0, data }); // 简化时间
       } catch (e) {
         resolve({ time: 999, data: null });
       }
@@ -100,33 +98,49 @@ function compressChunk(stockData) {
 
 // 测试API速度
 async function testAPISpeed(stockCodes) {
-  console.log('\n🧪 测试API速度...');
+  console.log('\n🧪 测试API速度（取前50个股票）...');
 
   const tencentTimes = [];
   const eastmoneyTimes = [];
 
-  for (const code of stockCodes.slice(0, 50)) {
+  const testCodes = stockCodes.slice(0, 50);
+  console.log(`   测试股票: ${testCodes.slice(0, 5).join(', ')}...`);
+
+  let success = 0;
+  for (let i = 0; i < testCodes.length; i++) {
+    const code = testCodes[i];
     const [tencent, eastmoney] = await Promise.all([
       getKlineFromTencent(code),
       getKlineFromEastmoney(code)
     ]);
 
-    if (tencent.klines) tencentTimes.push(tencent.time);
-    if (eastmoney.klines) eastmoneyTimes.push(eastmoney.time);
+    if (tencent.klines) {
+      tencentTimes.push(tencent.time);
+      success++;
+    }
+    if (eastmoney.klines) {
+      eastmoneyTimes.push(eastmoney.time);
+      success++;
+    }
 
-    await new Promise(r => setTimeout(r, 100));
+    if ((i + 1) % 10 === 0) {
+      console.log(`   进度: ${i + 1}/50, 成功: ${success}`);
+    }
+
+    await new Promise(r => setTimeout(r, 50));
   }
+
+  console.log(`   API测试完成, 成功: ${success}次`);
 
   const avgTencent = tencentTimes.length > 0 ? tencentTimes.reduce((a, b) => a + b, 0) / tencentTimes.length : 999;
   const avgEastmoney = eastmoneyTimes.length > 0 ? eastmoneyTimes.reduce((a, b) => a + b, 0) / eastmoneyTimes.length : 999;
 
-  console.log(`   腾讯API平均耗时: ${avgTencent.toFixed(3)}s`);
-  console.log(`   东方财富API平均耗时: ${avgEastmoney.toFixed(3)}s`);
+  console.log(`   腾讯API成功: ${tencentTimes.length}次`);
+  console.log(`   东方财富API成功: ${eastmoneyTimes.length}次`);
 
-  // 根据速度分配任务
-  const totalSpeed = avgTencent + avgEastmoney;
-  const tencentRatio = totalSpeed > 0 ? (totalSpeed - avgTencent) / totalSpeed : 0.5;
-  const eastmoneyRatio = totalSpeed > 0 ? (totalSpeed - avgEastmoney) / totalSpeed : 0.5;
+  // 根据成功率分配任务
+  const tencentRatio = tencentTimes.length >= eastmoneyTimes.length ? 0.7 : 0.3;
+  const eastmoneyRatio = eastmoneyTimes.length >= tencentTimes.length ? 0.7 : 0.3;
 
   console.log(`   分配: 腾讯 ${(tencentRatio * 100).toFixed(0)}%, 东方财富 ${(eastmoneyRatio * 100).toFixed(0)}%`);
 
