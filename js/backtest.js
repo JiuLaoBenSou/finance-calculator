@@ -10,6 +10,11 @@ let equityCurveData = null; // 保存原始收益曲线数据
 let initialCapitalData = null; // 保存初始资金
 let searchDebounceTimer = null; // 搜索防抖定时器
 
+// 压缩数据缓存
+let compressedDataCache = null; // 存储解压后的股票数据
+let isLoadingCompressedData = false;
+let loadedChunks = new Set(); // 已加载的块索引
+
 // 缓存配置
 const CACHE_KEY = 'stock_list_cache';
 const CACHE_EXPIRY = 60 * 60 * 1000; // 1小时
@@ -20,6 +25,107 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadStockList();
   setupEventListeners();
 });
+
+// 解压 gzip 数据（需要 pako.js）
+function decompressGzip(base64Data) {
+  if (typeof pako === 'undefined') {
+    console.error('pako.js 未加载');
+    return null;
+  }
+  try {
+    const binaryString = atob(base64Data);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    const decompressed = pako.inflate(bytes, { to: 'string' });
+    return JSON.parse(decompressed);
+  } catch (e) {
+    console.error('解压失败:', e);
+    return null;
+  }
+}
+
+// 加载指定块的数据
+async function loadChunk(chunkIndex) {
+  if (loadedChunks.has(chunkIndex)) {
+    return compressedDataCache[chunkIndex] || null;
+  }
+
+  try {
+    const response = await fetch('data-compressed.json');
+    const chunks = await response.json();
+
+    if (!chunks[chunkIndex]) {
+      console.error(`块 ${chunkIndex} 不存在`);
+      return null;
+    }
+
+    const stockData = decompressGzip(chunks[chunkIndex].data);
+    if (!compressedDataCache) {
+      compressedDataCache = {};
+    }
+    compressedDataCache[chunkIndex] = stockData;
+    loadedChunks.add(chunkIndex);
+
+    console.log(`已加载块 ${chunkIndex}, 包含 ${Object.keys(stockData).length} 只股票`);
+    return stockData;
+  } catch (e) {
+    console.error('加载压缩数据失败:', e);
+    return null;
+  }
+}
+
+// 根据股票代码查找所在的块
+function findStockChunk(code) {
+  // 根据代码确定块索引（简单哈希）
+  // sh000001 在块0，sh600000 在块6左右
+  if (code.startsWith('sh')) {
+    const num = parseInt(code.slice(2));
+    if (num < 1000) return 0;
+    if (num < 2000) return 1;
+    if (num < 3000) return 2;
+    if (num < 4000) return 3;
+    if (num < 5000) return 4;
+    if (num < 6000) return 5;
+    if (num < 7000) return 6;
+    return 7;
+  } else if (code.startsWith('sz')) {
+    const num = parseInt(code.slice(2));
+    if (num < 1000) return 8;
+    if (num < 2000) return 9;
+    if (num < 3000) return 10;
+    return 11;
+  }
+  return 0;
+}
+
+// 从压缩数据中获取股票数据
+async function getStockFromCompressedData(code) {
+  const chunkIndex = findStockChunk(code);
+  const chunkData = await loadChunk(chunkIndex);
+
+  if (!chunkData || !chunkData[code]) {
+    // 尝试遍历所有块（备用方案）
+    console.log(`在块 ${chunkIndex} 中未找到 ${code}，搜索其他块...`);
+    try {
+      const response = await fetch('data-compressed.json');
+      const chunks = await response.json();
+
+      for (let i = 0; i < chunks.length; i++) {
+        const data = decompressGzip(chunks[i].data);
+        if (data && data[code]) {
+          return { stock: data[code], chunkIndex: i };
+        }
+      }
+    } catch (e) {
+      console.error('搜索所有块失败:', e);
+    }
+    return null;
+  }
+
+  return { stock: chunkData[code], chunkIndex };
+}
 
 // 从缓存加载股票列表
 function getCachedStocks() {
@@ -267,67 +373,77 @@ async function selectStock(code, name) {
   await loadStockData(code);
 }
 
-  // 加载股票数据
-async function loadStockData(code) {
-  // 使用fetch直接获取（可能有CORS问题，但试试看）
-  async function tryFetchAPI(code) {
-    try {
-      const response = await fetch(`https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${code},day,,,800,qfq`);
-      const text = await response.text();
-      const data = JSON.parse(text);
-      if (data.data && data.data[code]) {
-        const stockData = data.data[code];
-        const name = stockData.qt && stockData.qt[code] ? stockData.qt[code][1] : '';
-        const klines = stockData.qfqday ? stockData.qfqday.map(k => ({
-          date: k[0], open: parseFloat(k[1]), high: parseFloat(k[2]),
-          low: parseFloat(k[3]), close: parseFloat(k[4]), volume: parseFloat(k[5])
-        })) : [];
-        return { code, name, klines };
-      }
-      throw new Error('无数据');
-    } catch (e) {
-      // 如果fetch失败，尝试东方财富API
-      const secid = code.startsWith('sh') ? `1.${code.slice(2)}` : `0.${code.slice(2)}`;
-      const url2 = `https://push2.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&end=20500101&lmt=800`;
-      const response2 = await fetch(url2);
-      const data2 = await response2.json();
-      if (data2.data && data2.data.klines) {
-        const klines = data2.data.klines.map(k => {
-          const arr = k.split(',');
-          return { date: arr[0], open: parseFloat(arr[1]), high: parseFloat(arr[2]),
-            low: parseFloat(arr[3]), close: parseFloat(arr[4]), volume: parseFloat(arr[5]) };
-        });
-        return { code, name: data2.data.name, klines };
-      }
-      throw new Error('API都失败');
-    }
-  }
-
+  // 从API获取股票数据（备用方案）
+async function tryFetchAPI(code) {
   try {
-    // 尝试从本地文件加载
-    let data = null;
-    try {
-      const response = await fetch(`data/${code}.json`);
-      if (response.ok) {
-        data = await response.json();
+    const response = await fetch(`https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${code},day,,,800,qfq`);
+    const text = await response.text();
+    const data = JSON.parse(text);
+    if (data.data && data.data[code]) {
+      const stockData = data.data[code];
+      const name = stockData.qt && stockData.qt[code] ? stockData.qt[code][1] : '';
+      const klines = stockData.qfqday ? stockData.qfqday.map(k => ({
+        date: k[0], open: parseFloat(k[1]), high: parseFloat(k[2]),
+        low: parseFloat(k[3]), close: parseFloat(k[4]), volume: parseFloat(k[5])
+      })) : [];
+      return { code, name, klines };
+    }
+    throw new Error('无数据');
+  } catch (e) {
+    // 如果fetch失败，尝试东方财富API
+    const secid = code.startsWith('sh') ? `1.${code.slice(2)}` : `0.${code.slice(2)}`;
+    const url2 = `https://push2.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&end=20500101&lmt=800`;
+    const response2 = await fetch(url2);
+    const data2 = await response2.json();
+    if (data2.data && data2.data.klines) {
+      const klines = data2.data.klines.map(k => {
+        const arr = k.split(',');
+        return { date: arr[0], open: parseFloat(arr[1]), high: parseFloat(arr[2]),
+          low: parseFloat(arr[3]), close: parseFloat(arr[4]), volume: parseFloat(arr[5]) };
+      });
+      return { code, name: data2.data.name, klines };
+    }
+    throw new Error('API都失败');
+  }
+}
+
+// 加载股票数据
+async function loadStockData(code) {
+  try {
+    // 先尝试从压缩数据加载
+    const compressedResult = await getStockFromCompressedData(code);
+
+    if (compressedResult && compressedResult.stock) {
+      const stock = compressedResult.stock;
+      // 转换格式：k 是数组 [date, open, high, low, close, volume]
+      const klines = stock.k ? stock.k.map(k => ({
+        date: k[0],
+        open: parseFloat(k[1]),
+        high: parseFloat(k[2]),
+        low: parseFloat(k[3]),
+        close: parseFloat(k[4]),
+        volume: parseFloat(k[5])
+      })) : [];
+
+      selectedStock.data = {
+        code: stock.c || code,
+        name: stock.n || '',
+        klines: klines
+      };
+    } else {
+      // 如果压缩数据中没有，尝试从API获取
+      console.log('压缩数据中未找到，从API获取...');
+      const apiData = await tryFetchAPI(code);
+      if (apiData && apiData.klines && apiData.klines.length > 0) {
+        selectedStock.data = apiData;
+      } else {
+        throw new Error('无法获取股票数据');
       }
-    } catch (e) {
-      console.log('本地数据加载失败，尝试从API获取');
     }
-
-    // 如果本地没有数据，从API获取
-    if (!data || !data.klines || data.klines.length === 0) {
-      data = await tryFetchAPI(code);
-    }
-
-    if (!data || !data.klines || data.klines.length === 0) {
-      throw new Error('无法获取股票数据');
-    }
-
-    selectedStock.data = data;
 
     // 设置日期范围
-    if (data.klines && data.klines.length > 0) {
+    if (selectedStock.data.klines && selectedStock.data.klines.length > 0) {
+      const data = selectedStock.data;
       const startDateInput = document.getElementById('start-date');
       const endDateInput = document.getElementById('end-date');
 
