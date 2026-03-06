@@ -136,69 +136,26 @@ async function testAPISpeed(stockCodes) {
   const avgEastmoney = eastmoneyTimes.length > 0 ? eastmoneyTimes.reduce((a, b) => a + b, 0) / eastmoneyTimes.length : 999;
 
   console.log(`   腾讯API成功: ${tencentTimes.length}次`);
-  console.log(`   东方财富API成功: ${eastmoneyTimes.length}次`);
+  console.log(`   东方财富API成功: ${eastmoneyTimes.length}次（备用）`);
 
-  // 根据实际成功次数分配任务比例（只有成功的API才能分配工作）
-  const totalSuccess = tencentTimes.length + eastmoneyTimes.length;
-  let tencentRatio = 0;
-  let eastmoneyRatio = 0;
+  // 只使用腾讯API
+  const tencentRatio = 1;
+  const eastmoneyRatio = 0;
 
-  if (totalSuccess > 0) {
-    tencentRatio = tencentTimes.length / totalSuccess;
-    eastmoneyRatio = eastmoneyTimes.length / totalSuccess;
-  } else {
-    // 两个都失败，默认只用腾讯
-    tencentRatio = 1;
-    eastmoneyRatio = 0;
-  }
-
-  console.log(`   分配: 腾讯 ${(tencentRatio * 100).toFixed(0)}%, 东方财富 ${(eastmoneyRatio * 100).toFixed(0)}%`);
+  console.log(`   分配: 腾讯 100%`);
 
   return { tencentRatio, eastmoneyRatio, avgTencent, avgEastmoney };
 }
 
-// 更新单个股票数据
-async function updateStock(code, existingKlines, ratios) {
-  const { tencentRatio, eastmoneyRatio } = ratios;
-
-  // 决定用哪个API
-  const useTencent = tencentRatio > 0;
-  const useEastmoney = eastmoneyRatio > 0;
-
+// 更新单个股票数据（只使用腾讯API）
+async function updateStock(code, existingKlines) {
   let newKlines = null;
-  let usedAPI = 'none';
+  let usedAPI = 'tencent';
 
-  if (useTencent) {
-    const result = await getKlineFromTencent(code, 100);
-    if (result.klines) {
-      newKlines = result.klines;
-      usedAPI = 'tencent';
-    }
-  }
-
-  if (!newKlines && useEastmoney) {
-    const result = await getKlineFromEastmoney(code, 100);
-    if (result.klines) {
-      newKlines = result.klines;
-      usedAPI = 'eastmoney';
-    }
-  }
-
-  // 如果两个API都失败，尝试另一个
-  if (!newKlines && usedAPI !== 'tencent') {
-    const result = await getKlineFromTencent(code, 100);
-    if (result.klines) {
-      newKlines = result.klines;
-      usedAPI = 'tencent';
-    }
-  }
-
-  if (!newKlines && usedAPI !== 'eastmoney') {
-    const result = await getKlineFromEastmoney(code, 100);
-    if (result.klines) {
-      newKlines = result.klines;
-      usedAPI = 'eastmoney';
-    }
+  // 只用腾讯API
+  const result = await getKlineFromTencent(code, 100);
+  if (result.klines) {
+    newKlines = result.klines;
   }
 
   if (!newKlines || newKlines.length === 0) {
@@ -235,7 +192,7 @@ async function updateChunk(chunkData, ratios) {
     const results = await Promise.all(
       batch.map(async (code) => {
         const stock = chunkData[code];
-        return { code, result: await updateStock(code, stock.k || [], ratios) };
+        return { code, result: await updateStock(code, stock.k || []) };
       })
     );
 
@@ -332,7 +289,7 @@ async function main() {
       const batch = allFailedStocks.slice(i, i + CONCURRENCY);
       const results = await Promise.all(
         batch.map(async ({ code, stock }) => {
-          return { code, result: await updateStock(code, stock.k || [], ratios) };
+          return { code, result: await updateStock(code, stock.k || []) };
         })
       );
 
