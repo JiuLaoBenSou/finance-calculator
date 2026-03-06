@@ -138,22 +138,48 @@ async function testAPISpeed(stockCodes) {
   console.log(`   腾讯API成功: ${tencentTimes.length}次`);
   console.log(`   东方财富API成功: ${eastmoneyTimes.length}次`);
 
-  // 根据成功率分配任务
-  const tencentRatio = tencentTimes.length >= eastmoneyTimes.length ? 0.7 : 0.3;
-  const eastmoneyRatio = eastmoneyTimes.length >= tencentTimes.length ? 0.7 : 0.3;
+  // 根据实际成功次数分配任务比例（只有成功的API才能分配工作）
+  const totalSuccess = tencentTimes.length + eastmoneyTimes.length;
+  let tencentRatio = 0;
+  let eastmoneyRatio = 0;
+
+  if (totalSuccess > 0) {
+    tencentRatio = tencentTimes.length / totalSuccess;
+    eastmoneyRatio = eastmoneyTimes.length / totalSuccess;
+  } else {
+    // 两个都失败，默认只用腾讯
+    tencentRatio = 1;
+    eastmoneyRatio = 0;
+  }
 
   console.log(`   分配: 腾讯 ${(tencentRatio * 100).toFixed(0)}%, 东方财富 ${(eastmoneyRatio * 100).toFixed(0)}%`);
 
   return { tencentRatio, eastmoneyRatio, avgTencent, avgEastmoney };
 }
 
+// 检查是否需要更新（超过N天没数据）
+function needsUpdate(existingKlines, daysThreshold = 3) {
+  if (!existingKlines || existingKlines.length === 0) return true;
+
+  const latestDate = existingKlines[existingKlines.length - 1].date;
+  const today = new Date().toISOString().split('T')[0];
+  const diffDays = Math.floor((new Date(today) - new Date(latestDate)) / (1000 * 60 * 60 * 24));
+
+  return diffDays >= daysThreshold;
+}
+
 // 更新单个股票数据
 async function updateStock(code, existingKlines, ratios) {
+  // 先检查是否需要更新
+  if (!needsUpdate(existingKlines)) {
+    return { updated: false, api: 'skipped', reason: 'up_to_date' };
+  }
+
   const { tencentRatio, eastmoneyRatio } = ratios;
 
   // 决定用哪个API
-  const useTencent = tencentRatio >= 0.3;
-  const useEastmoney = eastmoneyRatio >= 0.3;
+  const useTencent = tencentRatio > 0;
+  const useEastmoney = eastmoneyRatio > 0;
 
   let newKlines = null;
   let usedAPI = 'none';
@@ -211,38 +237,53 @@ async function updateStock(code, existingKlines, ratios) {
 // 更新单个块
 async function updateChunk(chunkData, ratios) {
   const codes = Object.keys(chunkData);
-  console.log(`\n📦 处理 ${codes.length} 只股票`);
+
+  // 先统计需要更新的股票数量
+  const needUpdate = codes.filter(code => {
+    const stock = chunkData[code];
+    return needsUpdate(stock.k || []);
+  });
+  console.log(`\n📦 共 ${codes.length} 只股票，需要更新 ${needUpdate.length} 只`);
 
   let updated = 0;
+  let skipped = 0;
   let failed = 0;
-  let apiStats = { tencent: 0, eastmoney: 0, none: 0 };
+  let apiStats = { tencent: 0, eastmoney: 0, none: 0, skipped: 0 };
 
-  for (let i = 0; i < codes.length; i++) {
-    const code = codes[i];
-    const stock = chunkData[code];
-    const existingKlines = stock.k || [];
+  // 并发更新（每次10个）
+  const CONCURRENCY = 10;
 
-    const result = await updateStock(code, existingKlines, ratios);
+  for (let i = 0; i < needUpdate.length; i += CONCURRENCY) {
+    const batch = needUpdate.slice(i, i + CONCURRENCY);
+    const results = await Promise.all(
+      batch.map(async (code) => {
+        const stock = chunkData[code];
+        return { code, result: await updateStock(code, stock.k || [], ratios) };
+      })
+    );
 
-    if (result.updated && result.klines) {
-      stock.k = result.klines;
-      updated++;
-    } else if (!result.updated) {
-      // 数据未更新（可能是同一天）
+    for (const { code, result } of results) {
+      const stock = chunkData[code];
+
+      if (result.reason === 'up_to_date') {
+        skipped++;
+        apiStats.skipped = (apiStats.skipped || 0) + 1;
+      } else if (result.updated && result.klines) {
+        stock.k = result.klines;
+        updated++;
+        apiStats[result.api] = (apiStats[result.api] || 0) + 1;
+      } else {
+        failed++;
+      }
     }
 
-    apiStats[result.api] = (apiStats[result.api] || 0) + 1;
-
-    if ((i + 1) % 100 === 0) {
-      console.log(`   进度: ${i + 1}/${codes.length}`);
+    if ((i + CONCURRENCY) % 100 === 0 || i + CONCURRENCY >= needUpdate.length) {
+      console.log(`   进度: ${Math.min(i + CONCURRENCY, needUpdate.length)}/${needUpdate.length}, 已更新: ${updated}, 跳过: ${skipped}`);
     }
-
-    // 避免请求过快
-    await new Promise(r => setTimeout(r, 50));
   }
 
-  console.log(`   更新: ${updated}, 失败: ${failed}, API使用: 腾讯${apiStats.tencent}, 东财${apiStats.eastmoney}`);
-  return { updated, failed };
+  console.log(`   完成: 更新${updated}, 跳过${skipped}, 失败${failed}`);
+  return { updated, skipped, failed };
 }
 
 // 主函数
