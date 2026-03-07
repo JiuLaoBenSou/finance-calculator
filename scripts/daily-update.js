@@ -126,7 +126,7 @@ async function updateStock(code, existingKlines) {
 }
 
 // 更新单个块
-async function updateChunk(chunkData, ratios) {
+async function updateChunk(chunkData) {
   const codes = Object.keys(chunkData);
   console.log(`\n📦 处理 ${codes.length} 只股票`);
 
@@ -204,7 +204,7 @@ async function main() {
     }
 
     // 更新
-    const result = await updateChunk(chunkData, ratios);
+    const result = await updateChunk(chunkData);
     totalUpdated += result.updated;
     totalFailed += result.failed;
 
