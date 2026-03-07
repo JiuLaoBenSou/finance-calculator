@@ -45,6 +45,24 @@ function decompressGzip(base64Data) {
     return null;
   }
 }
+// 缓存chunks索引
+let chunksIndexCache = null;
+
+// 加载chunks索引
+async function loadChunksIndex() {
+  if (chunksIndexCache) {
+    return chunksIndexCache;
+  }
+
+  try {
+    const response = await fetch('data-chunks/index.json');
+    chunksIndexCache = await response.json();
+    return chunksIndexCache;
+  } catch (e) {
+    console.error('加载chunks索引失败:', e);
+    return null;
+  }
+}
 
 // 加载指定块的数据
 async function loadChunk(chunkIndex) {
@@ -53,15 +71,17 @@ async function loadChunk(chunkIndex) {
   }
 
   try {
-    const response = await fetch('data-compressed.json');
-    const chunks = await response.json();
-
-    if (!chunks[chunkIndex]) {
+    const chunks = await loadChunksIndex();
+    if (!chunks || !chunks[chunkIndex]) {
       console.error(`块 ${chunkIndex} 不存在`);
       return null;
     }
 
-    const stockData = decompressGzip(chunks[chunkIndex].data);
+    // 加载对应的小文件
+    const response = await fetch(`data-chunks/${chunks[chunkIndex].filename}`);
+    const chunkData = await response.json();
+
+    const stockData = decompressGzip(chunkData.data);
     if (!compressedDataCache) {
       compressedDataCache = {};
     }
@@ -77,26 +97,49 @@ async function loadChunk(chunkIndex) {
 }
 
 // 根据股票代码查找所在的块
+// 基于实际数据分布的范围查询
 function findStockChunk(code) {
-  // 根据代码确定块索引（简单哈希）
-  // sh000001 在块0，sh600000 在块6左右
+  if (code.startsWith('bj')) {
+    return 0;  // bj 在块 0-1
+  }
+
   if (code.startsWith('sh')) {
     const num = parseInt(code.slice(2));
-    if (num < 1000) return 0;
-    if (num < 2000) return 1;
-    if (num < 3000) return 2;
-    if (num < 4000) return 3;
-    if (num < 5000) return 4;
-    if (num < 6000) return 5;
-    if (num < 7000) return 6;
-    return 7;
-  } else if (code.startsWith('sz')) {
-    const num = parseInt(code.slice(2));
-    if (num < 1000) return 8;
-    if (num < 2000) return 9;
-    if (num < 3000) return 10;
-    return 11;
+    // 根据实际数据分布 (从chunk文件分析得到)
+    if (num < 560080) return 10;  // sh515860 ~ sh560070
+    if (num < 563800) return 11;  // sh560080 ~ sh563780
+    if (num < 600120) return 12;  // sh563800 ~ sh600119
+    if (num < 600346) return 13;  // sh600120 ~ sh600345
+    if (num < 600595) return 14;  // sh600346 ~ sh600594
+    if (num < 600795) return 15;  // sh600595 ~ sh600794
+    if (num < 601086) return 16;  // sh600795 ~ sh601083
+    if (num < 603001) return 17;  // sh601086 ~ sh603000 (sh601398在这里!)
+    if (num < 603231) return 18;  // sh603001 ~ sh603230
+    if (num < 603608) return 19;  // sh603231 ~ sh603607
+    if (num < 603979) return 20;  // sh603608 ~ sh603978
+    if (num < 688080) return 21;  // sh603979 ~ sh688079
+    if (num < 688800) return 22;  // sh688080 ~ sh688799
+    return 23; // 其他上海股票
   }
+
+  if (code.startsWith('sz')) {
+    // 深圳股票从chunk 32开始
+    const num = parseInt(code.slice(2));
+    if (num < 1000) return 32;   // sz000001 ~ sz000999
+    if (num < 10000) return 33;   // sz001000 ~ sz009999
+    if (num < 30000) return 34;   // sz010000 ~ sz029999
+    if (num < 250000) return 35;  // sz030000 ~ sz249999
+    if (num < 300000) return 36;  // sz250000 ~ sz299999
+    if (num < 400000) return 37;  // sz300000 ~ sz399999
+    if (num < 500000) return 38;  // sz400000 ~ sz499999
+    if (num < 130000) return 39;  // sz100000 ~ sz129999
+    if (num < 140000) return 40;  // sz130000 ~ sz139999
+    if (num < 160000) return 42;  // sz140000 ~ sz159999
+    if (num < 170000) return 43;  // sz160000 ~ sz169999
+    if (num < 180000) return 44;  // sz170000 ~ sz179999
+    return 51; // 其他深圳股票
+  }
+
   return 0;
 }
 
@@ -109,12 +152,24 @@ async function getStockFromCompressedData(code) {
     // 尝试遍历所有块（备用方案）
     console.log(`在块 ${chunkIndex} 中未找到 ${code}，搜索其他块...`);
     try {
-      const response = await fetch('data-compressed.json');
-      const chunks = await response.json();
+      const chunks = await loadChunksIndex();
+      if (!chunks) return null;
 
       for (let i = 0; i < chunks.length; i++) {
+        // 跳过已加载的块
+        if (loadedChunks.has(i)) {
+          const cached = compressedDataCache[i];
+          if (cached && cached[code]) {
+            return { stock: cached[code], chunkIndex: i };
+          }
+          continue;
+        }
+
+        // 只加载需要的块
         const data = decompressGzip(chunks[i].data);
         if (data && data[code]) {
+          compressedDataCache[i] = data;
+          loadedChunks.add(i);
           return { stock: data[code], chunkIndex: i };
         }
       }
