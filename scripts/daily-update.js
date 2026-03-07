@@ -14,7 +14,8 @@ const path = require('path');
 const zlib = require('zlib');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
-const COMPRESSED_FILE = path.join(__dirname, '..', 'data-compressed.json');
+const CHUNKS_DIR = path.join(__dirname, '..', 'data-chunks');
+const INDEX_FILE = path.join(CHUNKS_DIR, 'index.json');
 const PROXY = process.env.HTTP_PROXY || process.env.HTTPS_PROXY || '';
 
 // API 配置
@@ -168,20 +169,46 @@ async function updateChunk(chunkData) {
   return { updated, failed };
 }
 
+// 加载单个chunk文件
+function loadChunkFile(filename) {
+  const chunkPath = path.join(CHUNKS_DIR, filename);
+  const chunkContent = fs.readFileSync(chunkPath, 'utf8');
+  const chunk = JSON.parse(chunkContent);
+  // 解压数据
+  const binary = Buffer.from(chunk.data, 'base64');
+  const decompressed = zlib.gunzipSync(binary);
+  return JSON.parse(decompressed.toString('utf8'));
+}
+
+// 保存单个chunk文件
+function saveChunkFile(filename, chunkData) {
+  const jsonStr = JSON.stringify(chunkData);
+  const compressed = zlib.gzipSync(Buffer.from(jsonStr, 'utf8'));
+  const compressedBase64 = compressed.toString('base64');
+
+  const chunkPath = path.join(CHUNKS_DIR, filename);
+  const chunkContent = fs.readFileSync(chunkPath, 'utf8');
+  const chunk = JSON.parse(chunkContent);
+  chunk.data = compressedBase64;
+  chunk.updatedAt = new Date().toISOString();
+
+  fs.writeFileSync(chunkPath, JSON.stringify(chunk));
+}
+
 // 主函数
 async function main() {
   console.log('🚀 开始每日数据更新...\n');
   console.log(`⏰ 更新时间: ${new Date().toLocaleString()}\n`);
 
-  // 1. 加载压缩数据
-  console.log('📂 加载压缩数据...');
-  const fileContent = fs.readFileSync(COMPRESSED_FILE, 'utf8');
-  const chunks = JSON.parse(fileContent);
+  // 1. 加载索引文件
+  console.log('📂 加载chunks索引...');
+  const indexContent = fs.readFileSync(INDEX_FILE, 'utf8');
+  const chunks = JSON.parse(indexContent);
   console.log(`   共有 ${chunks.length} 个数据块\n`);
 
   // 2. 解压第一个块测试速度
   console.log('📦 解压第一个块用于测试...');
-  const testChunk = decompressChunk(chunks[0].data);
+  const testChunk = loadChunkFile(chunks[0].filename);
   const testCodes = Object.keys(testChunk);
 
   // 3. 只使用腾讯API
@@ -195,12 +222,12 @@ async function main() {
   for (let i = 0; i < chunks.length; i++) {
     console.log(`\n========== 块 ${i + 1}/${chunks.length} ==========`);
 
-    // 解压
+    // 加载chunk数据
     let chunkData;
     if (i === 0) {
-      chunkData = testChunk; // 第一个块已经解压
+      chunkData = testChunk; // 第一个块已经加载
     } else {
-      chunkData = decompressChunk(chunks[i].data);
+      chunkData = loadChunkFile(chunks[i].filename);
     }
 
     // 更新
@@ -218,13 +245,8 @@ async function main() {
       }
     }
 
-    // 重新压缩
-    const newCompressed = compressChunk(chunkData);
-    chunks[i].data = newCompressed;
-    chunks[i].updatedAt = new Date().toISOString();
-
-    // 保存进度
-    fs.writeFileSync(COMPRESSED_FILE, JSON.stringify(chunks));
+    // 保存chunk文件
+    saveChunkFile(chunks[i].filename, chunkData);
     console.log(`   ✓ 块 ${i + 1} 已保存`);
   }
 
@@ -254,9 +276,9 @@ async function main() {
           if (failedStock.chunkIndex === 0) {
             testChunk[code] = failedStock.stock;
           } else {
-            const chunkData = decompressChunk(chunks[failedStock.chunkIndex].data);
+            const chunkData = loadChunkFile(chunks[failedStock.chunkIndex].filename);
             chunkData[code] = failedStock.stock;
-            chunks[failedStock.chunkIndex].data = compressChunk(chunkData);
+            saveChunkFile(chunks[failedStock.chunkIndex].filename, chunkData);
           }
         }
       }
@@ -267,8 +289,7 @@ async function main() {
     }
 
     // 保存重试后的结果
-    chunks[0].data = compressChunk(testChunk);
-    fs.writeFileSync(COMPRESSED_FILE, JSON.stringify(chunks));
+    saveChunkFile(chunks[0].filename, testChunk);
 
     const remainingFailed = allFailedStocks.length - retrySuccess;
     console.log(`   校验完成: 重试成功 ${retrySuccess}, 仍失败 ${remainingFailed}`);
@@ -282,11 +303,19 @@ async function main() {
   console.log('✅ 每日更新完成!');
   console.log(`   总更新: ${totalUpdated} 只`);
   console.log(`   失败: ${totalFailed} 只`);
-  console.log(`   文件: ${COMPRESSED_FILE}`);
+  console.log(`   目录: ${CHUNKS_DIR}`);
   console.log('========================================\n');
 
-  const stats = fs.statSync(COMPRESSED_FILE);
-  console.log(`📊 文件大小: ${(stats.size / 1024 / 1024).toFixed(2)} MB`);
+  // 计算总大小
+  let totalSize = 0;
+  const files = fs.readdirSync(CHUNKS_DIR);
+  for (const f of files) {
+    if (f.startsWith('chunk_')) {
+      const stats = fs.statSync(path.join(CHUNKS_DIR, f));
+      totalSize += stats.size;
+    }
+  }
+  console.log(`📊 数据目录大小: ${(totalSize / 1024 / 1024).toFixed(2)} MB`);
 }
 
 main().catch(console.error);
