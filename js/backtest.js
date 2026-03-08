@@ -66,23 +66,49 @@ async function loadChunksIndex() {
 
 // 从data-chunks加载所有股票列表
 async function loadStockListFromChunks() {
+  console.log('开始从data-chunks加载股票列表...');
+
+  // 先加载索引
+  console.log('加载chunks索引...');
   const chunks = await loadChunksIndex();
-  if (!chunks) return null;
+  console.log('chunks索引:', chunks ? `${chunks.length} 个块` : '加载失败');
+  if (!chunks) {
+    console.error('无法加载chunks索引');
+    return null;
+  }
 
   const allStocks = [];
   const loadedChunkData = {};
+  let successCount = 0;
+  let failCount = 0;
 
   // 加载所有chunk
   for (let i = 0; i < chunks.length; i++) {
     try {
+      console.log(`加载chunk ${i}: ${chunks[i].filename}...`);
       const response = await fetch(`data-chunks/${chunks[i].filename}`);
+      if (!response.ok) {
+        console.error(`chunk ${i} HTTP错误: ${response.status}`);
+        failCount++;
+        continue;
+      }
       const chunkData = await response.json();
       const stockData = decompressGzip(chunkData.data);
+      if (!stockData) {
+        console.error(`chunk ${i} 解压失败`);
+        failCount++;
+        continue;
+      }
       loadedChunkData[i] = stockData;
+      successCount++;
+      console.log(`chunk ${i} 加载成功, ${Object.keys(stockData).length} 只股票`);
     } catch (e) {
       console.error(`加载chunk ${i}失败:`, e);
+      failCount++;
     }
   }
+
+  console.log(`加载完成: 成功 ${successCount} 个, 失败 ${failCount} 个`);
 
   // 提取股票代码和名称
   for (const chunkData of Object.values(loadedChunkData)) {
@@ -94,6 +120,7 @@ async function loadStockListFromChunks() {
     }
   }
 
+  console.log(`总共加载 ${allStocks.length} 只股票`);
   return allStocks;
 }
 
