@@ -28,7 +28,6 @@ jobs:
       - name: 拉取 LFS 文件
         run: |
           git lfs pull
-          ls -lh data-compressed.json
 
       - name: 安装 Node.js
         uses: actions/setup-node@v4
@@ -58,7 +57,7 @@ jobs:
       - name: 检查是否有更新
         id: check
         run: |
-          if git diff --stat | grep -q "data-compressed.json"; then
+          if [ -n "$(git status --short data-chunks/)" ]; then
             echo "has_changes=true" >> $GITHUB_OUTPUT
           else
             echo "has_changes=false" >> $GITHUB_OUTPUT
@@ -67,7 +66,7 @@ jobs:
       - name: 提交并推送更新
         if: steps.check.outputs.has_changes == 'true'
         run: |
-          git add data-compressed.json
+          git add data-chunks/
           git commit -m "daily: 更新股票数据 $(date +'%Y-%m-%d')"
           git push origin master
         env:
