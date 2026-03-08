@@ -524,6 +524,17 @@ function getStockName(code) {
   return stockNameMap[code] || code;
 }
 
+// 格式化股票显示（去掉sz/bj前缀和括号）
+function formatStockDisplay(code, name) {
+  // 去掉前缀
+  const cleanCode = code.replace(/^(sh|sz|bj)/i, '');
+  // 如果名字等于代码，说明没有中文名
+  if (name === code) {
+    return cleanCode;
+  }
+  return `${name} ${cleanCode}`;
+}
+
 // 获取中文关键词
 function getChineseKeyword(query) {
   const lowerQuery = query.toLowerCase();
@@ -567,8 +578,9 @@ function performSearch(query) {
   } else {
     resultsDiv.innerHTML = matches.map(s => {
       const name = getStockName(s.code);
+      const display = formatStockDisplay(s.code, name);
       return `<div class="search-result-item" onclick="selectStock('${s.code}', '${name}')">
-        ${name} ${s.code}
+        ${display}
       </div>`;
     }).join('');
   }
@@ -637,7 +649,8 @@ async function selectStock(code, name) {
   // 获取真实名称
   const realName = await fetchStockName(code);
   selectedStock = { code, name: realName };
-  document.getElementById('selected-stock-name').textContent = realName;
+  // 格式化显示：去掉sz/bj前缀
+  document.getElementById('selected-stock-name').textContent = formatStockDisplay(code, realName);
 
   // 加载股票数据
   await loadStockData(code);
