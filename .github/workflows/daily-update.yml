@@ -67,9 +67,10 @@ jobs:
       - name: 提交并推送更新
         if: steps.check.outputs.has_changes == 'true'
         run: |
+          git pull --rebase origin master
           git add data-chunks/
           git commit -m "daily: 更新股票数据 $(date +'%Y-%m-%d')"
-          git push https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git master
+          git push https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git master --force
 
       - name: 记录更新结果
         if: steps.check.outputs.has_changes == 'true'
