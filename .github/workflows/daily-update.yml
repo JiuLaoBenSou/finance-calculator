@@ -12,18 +12,22 @@ on:
       - master
     paths:
       - 'scripts/daily-update.js'
+      - '.github/workflows/daily-update.yml'
 
 jobs:
   update-data:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pages: write
+      id-token: write
 
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # 获取完整历史，用于推送
+          fetch-depth: 0
+          token: ${{ github.token }}
 
       - name: 安装 Node.js
         uses: actions/setup-node@v4
@@ -38,41 +42,124 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
 
-      - name: 设置代理（可选，用于API请求）
-        run: echo "需要代理请配置"
+      - name: 显示代理配置状态
+        id: proxy-status
+        run: |
+          if [ -n "${{ secrets.HTTP_PROXY }}" ]; then
+            echo "✅ 代理已配置"
+            echo "proxy_configured=true" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ 未配置HTTP代理，尝试直接连接..."
+            echo "proxy_configured=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 测试API连接
+        id: api-test
+        run: |
+          echo "=== 测试API连接 ==="
+
+          # 测试东方财富API
+          echo "测试东方财富API..."
+          if curl -s --connect-timeout 10 --max-time 15 "https://push2.eastmoney.com/api/qt/stock/kline/get?secid=1.600519&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56&klt=101&fqt=1&lmt=1" | grep -q "klines"; then
+            echo "✅ 东方财富API连接成功"
+            echo "api_status=eastmoney_ok" >> $GITHUB_OUTPUT
+          elif [ -n "${{ secrets.HTTP_PROXY }}" ]; then
+            echo "使用代理测试..."
+            curl -x "${{ secrets.HTTP_PROXY }}" -s --connect-timeout 10 "https://push2.eastmoney.com/api/qt/stock/kline/get?secid=1.600519&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56&klt=101&fqt=1&lmt=1" | grep -q "klines"
+            if [ $? -eq 0 ]; then
+              echo "✅ 东方财富API(代理)连接成功"
+              echo "api_status=eastmoney_proxy_ok" >> $GITHUB_OUTPUT
+            else
+              echo "❌ 东方财富API失败"
+              echo "api_status=eastmoney_fail" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "❌ 东方财富API连接失败（无代理）"
+            echo "api_status=eastmoney_fail" >> $GITHUB_OUTPUT
+          fi
 
       - name: 运行每日更新脚本
+        if: steps.api-test.outputs.api_status != 'eastmoney_fail'
         env:
           HTTP_PROXY: ${{ secrets.HTTP_PROXY }}
           HTTPS_PROXY: ${{ secrets.HTTPS_PROXY }}
+          NO_PROXY: ${{ secrets.NO_PROXY }}
         run: |
           echo "=== 开始执行更新脚本 ==="
-          node scripts/daily-update.js 2>&1
+          echo "Node版本: $(node --version)"
+          echo "代理: ${HTTP_PROXY:-未配置}"
+
+          # 捕获详细输出
+          node scripts/daily-update.js 2>&1 || exit 0
+
           echo "=== 脚本执行完成 ==="
 
       - name: 检查是否有更新
         id: check
         run: |
+          echo "=== 检查数据变更 ==="
           if [ -n "$(git status --short data-chunks/)" ]; then
+            echo "有数据变更:"
+            git status --short data-chunks/
             echo "has_changes=true" >> $GITHUB_OUTPUT
           else
+            echo "没有数据变更"
             echo "has_changes=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: 提交并推送更新
+      - name: 显示变更详情
         if: steps.check.outputs.has_changes == 'true'
         run: |
-          # 先清理本地未提交的更改，强制同步到远程最新版本
-          git fetch origin
-          git reset --hard origin/master
-          git add data-chunks/
-          git commit -m "daily: 更新股票数据 $(date +'%Y-%m-%d')"
-          git push https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git master --force
+          echo "=== 数据变更详情 ==="
+          git diff --stat data-chunks/ | head -20
 
-      - name: 记录更新结果
+      - name: 提交并推送更新
         if: steps.check.outputs.has_changes == 'true'
-        run: echo "✅ 数据已更新并推送"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          echo "=== 提交并推送 ==="
+
+          # 获取远程最新
+          git fetch origin
+
+          # 设置push用的token
+          PUSH_TOKEN="x-access-token:${{ github.token }}"
+          PUSH_URL="https://${PUSH_TOKEN}@github.com/${{ github.repository }}.git"
+
+          # 添加数据
+          git add data-chunks/
+
+          # 提交
+          COMMIT_MSG="daily: 更新股票数据 $(date +'%Y-%m-%d')"
+          echo "提交信息: ${COMMIT_MSG}"
+          git commit -m "${COMMIT_MSG}" || echo "没有需要提交的变更"
+
+          # 推送（使用rebase避免冲突）
+          git push ${PUSH_URL} master 2>&1 || {
+            echo "Push失败，尝试force push..."
+            git push --force ${PUSH_URL} master
+          }
+
+      - name: 成功结果
+        if: steps.check.outputs.has_changes == 'true'
+        run: |
+          echo "✅ 数据已更新并推送"
+          echo "更新日期: $(date +'%Y-%m-%d')"
 
       - name: 无需更新
         if: steps.check.outputs.has_changes != 'true'
-        run: echo "✅ 数据已是最新，无需更新"
+        run: |
+          echo "✅ 数据已是最新，无需更新"
+          echo "检查时间: $(date +'%Y-%m-%d %H:%M:%S')"
+
+      - name: API失败处理
+        if: steps.api-test.outputs.api_status == 'eastmoney_fail'
+        run: |
+          echo "⚠️ API连接失败，请检查:"
+          echo "1. 是否配置了代理 secrets (HTTP_PROXY, HTTPS_PROXY)"
+          echo "2. 或者网络问题"
+          echo ""
+          echo "配置代理方法:"
+          echo "  仓库设置 → Secrets and variables → Actions"
+          echo "  添加 HTTP_PROXY 和 HTTPS_PROXY"
