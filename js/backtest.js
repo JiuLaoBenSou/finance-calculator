@@ -516,6 +516,11 @@ const stockNameMap = {
 
 // 获取股票名称
 function getStockName(code) {
+  // 优先使用缓存的名称（从stocks.json加载）
+  if (stockNameCache[code]) {
+    return stockNameCache[code];
+  }
+  // 其次使用本地映射
   return stockNameMap[code] || code;
 }
 
@@ -560,11 +565,12 @@ function performSearch(query) {
   if (matches.length === 0) {
     resultsDiv.innerHTML = '<div class="search-result-item">未找到匹配的股票</div>';
   } else {
-    resultsDiv.innerHTML = matches.map(s =>
-      `<div class="search-result-item" onclick="selectStock('${s.code}', '${getStockName(s.code)}')">
-        ${getStockName(s.code)} (${s.code})
-      </div>`
-    ).join('');
+    resultsDiv.innerHTML = matches.map(s => {
+      const name = getStockName(s.code);
+      return `<div class="search-result-item" onclick="selectStock('${s.code}', '${name}')">
+        ${name} ${s.code}
+      </div>`;
+    }).join('');
   }
 
   resultsDiv.classList.add('show');
