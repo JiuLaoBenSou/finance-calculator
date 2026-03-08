@@ -124,15 +124,24 @@ function compressChunk(stockData) {
 }
 
 
-// 更新单个股票数据（只使用腾讯API）
+// 更新单个股票数据（优先使用东方财富API，不需要代理）
 async function updateStock(code, existingKlines) {
   let newKlines = null;
-  let usedAPI = 'tencent';
+  let usedAPI = 'eastmoney';
 
-  // 只用腾讯API
-  const result = await getKlineFromTencent(code, 100);
-  if (result.klines) {
+  // 优先使用东方财富API（不需要代理）
+  const result = await getKlineFromEastmoney(code, 100);
+  if (result.klines && result.klines.length > 0) {
     newKlines = result.klines;
+  }
+
+  // 如果东方财富失败，尝试腾讯API（需要代理）
+  if (!newKlines || newKlines.length === 0) {
+    const tencentResult = await getKlineFromTencent(code, 100);
+    if (tencentResult.klines && tencentResult.klines.length > 0) {
+      newKlines = tencentResult.klines;
+      usedAPI = 'tencent';
+    }
   }
 
   if (!newKlines || newKlines.length === 0) {
@@ -140,16 +149,16 @@ async function updateStock(code, existingKlines) {
   }
 
   // 合并数据
-  if (existingKlines.length > 0) {
-    const existingDates = new Set(existingKlines.map(k => k.date));
+  if (existingKlines && existingKlines.length > 0) {
+    const existingDates = new Set(existingKlines.map(k => k.date || k[0]));
     const uniqueNew = newKlines.filter(k => !existingDates.has(k.date));
     const combined = [...existingKlines, ...uniqueNew].sort((a, b) =>
-      new Date(a.date) - new Date(b.date)
+      new Date(a.date || a[0]) - new Date(b.date || b[0])
     );
     newKlines = combined;
   }
 
-  return { updated: newKlines.length > existingKlines.length, klines: newKlines, api: usedAPI };
+  return { updated: newKlines.length > (existingKlines ? existingKlines.length : 0), klines: newKlines, api: usedAPI };
 }
 
 // 更新单个块
