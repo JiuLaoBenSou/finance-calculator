@@ -1,0 +1,3 @@
+- generic [active] [ref=e1]:
+  - heading "测试压缩数据解压" [level=1] [ref=e2]
+  - generic [ref=e3]: 正在加载 data-compressed.json...

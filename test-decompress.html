@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>测试压缩数据解压</title>
+  <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
+</head>
+<body>
+  <h1>测试压缩数据解压</h1>
+  <div id="output">加载中...</div>
+
+  <script>
+    const output = document.getElementById('output');
+
+    async function testDecompress() {
+      try {
+        output.innerHTML = '正在加载 data-compressed.json...';
+
+        // 加载压缩数据
+        const response = await fetch('data-compressed.json');
+        const chunks = await response.json();
+
+        output.innerHTML += '<br>压缩块数量: ' + chunks.length;
+
+        // 解压第一个块
+        output.innerHTML += '<br>正在解压第一个块...';
+
+        const compressed = Uint8Array.from(atob(chunks[0].data), c => c.charCodeAt(0));
+        const decompressed = pako.inflate(compressed, { to: 'string' });
+        const stockData = JSON.parse(decompressed);
+
+        // 检查数据
+        const keys = Object.keys(stockData);
+        output.innerHTML += '<br>第一个块股票数量: ' + keys.length;
+
+        // 获取第一个股票数据
+        const firstCode = keys[0];
+        const firstStock = stockData[firstCode];
+        output.innerHTML += '<br>第一个股票代码: ' + firstCode;
+        output.innerHTML += '<br>股票名称: ' + firstStock.n;
+        output.innerHTML += '<br>K线数量: ' + (firstStock.k ? firstStock.k.length : 0);
+
+        if (firstStock.k && firstStock.k.length > 0) {
+          output.innerHTML += '<br>第一条K线: ' + JSON.stringify(firstStock.k[0]);
+          output.innerHTML += '<br>最后一条K线: ' + JSON.stringify(firstStock.k[firstStock.k.length - 1]);
+        }
+
+        // 测试搜索 sh600000
+        if (stockData.sh600000) {
+          const s600000 = stockData.sh600000;
+          output.innerHTML += '<br><br>=== sh600000 验证 ===';
+          output.innerHTML += '<br>名称: ' + s600000.n;
+          output.innerHTML += '<br>K线数量: ' + (s600000.k ? s600000.k.length : 0);
+          if (s600000.k && s600000.k.length > 0) {
+            output.innerHTML += '<br>第一条: ' + JSON.stringify(s600000.k[0]);
+            output.innerHTML += '<br>最后一条: ' + JSON.stringify(s600000.k[s600000.k.length - 1]);
+          }
+        } else {
+          output.innerHTML += '<br><br>警告: 未找到 sh600000';
+        }
+
+        output.innerHTML += '<br><br><strong style="color:green">测试成功！数据可读。</strong>';
+
+      } catch (err) {
+        output.innerHTML += '<br><br><strong style="color:red">错误: ' + err.message + '</strong>';
+        console.error(err);
+      }
+    }
+
+    testDecompress();
+  </script>
+</body>
+</html>

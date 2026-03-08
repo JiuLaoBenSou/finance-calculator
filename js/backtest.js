@@ -64,7 +64,7 @@ async function loadChunksIndex() {
   }
 }
 
-// 从data-chunks加载股票列表（轻量级索引文件）
+// 从data-chunks加载所有股票列表（轻量级，只加载股票代码和名称）
 async function loadStockListFromChunks() {
   console.log('加载股票列表索引...');
 

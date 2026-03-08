@@ -1,6 +1,7 @@
 /**
  * 补全股票历史数据
  * 每次请求800天，多次请求直到没有更早数据
+ * 处理所有12个块
  *
  * 使用方法: node scripts/complete-history.js
  */
@@ -48,14 +49,8 @@ async function getKline(code, days = 800, startDate = '') {
     const stockData = data.data[code];
     const klines = stockData.qfqday || stockData.day || [];
     if (klines.length > 0) {
-      return klines.map(k => ({
-        date: k[0],
-        open: parseFloat(k[1]),
-        high: parseFloat(k[2]),
-        low: parseFloat(k[3]),
-        close: parseFloat(k[4]),
-        volume: parseFloat(k[5])
-      }));
+      // 使用数组格式: [date, open, high, low, close, volume]
+      return klines.map(k => [k[0], parseFloat(k[1]), parseFloat(k[2]), parseFloat(k[3]), parseFloat(k[4]), parseFloat(k[5])]);
     }
   }
   return null;
@@ -83,78 +78,61 @@ async function completeStockHistory(code, existingKlines) {
     earliestDate = existingKlines[0].date;
   }
 
-  console.log(`\n📈 补全 ${code}...`);
-  if (earliestDate) {
-    console.log(`   当前最早日期: ${earliestDate}, 共 ${existingKlines.length} 天`);
-  }
-
   // 从最早日期往前追溯，每次800天
   const allKlines = existingKlines ? [...existingKlines] : [];
-  let currentStartDate = earliestDate || '';
+  // 从 earliestDate 往前 800 天开始
+  let currentStartDate = '';
+  if (earliestDate) {
+    const date = new Date(earliestDate);
+    date.setDate(date.getDate() - 800);
+    currentStartDate = date.toISOString().split('T')[0];
+  }
   const DAYS_PER_REQUEST = 800;
-  const MAX_RETRIES = 10; // 最多请求10次（约8000天 = 20年）
+  const MAX_RETRIES = 10;
 
   for (let retry = 0; retry < MAX_RETRIES; retry++) {
-    // 计算请求的起始日期（往前800天）
-    let startDate = '';
+    let startDate = currentStartDate;
     if (currentStartDate) {
       const date = new Date(currentStartDate);
       date.setDate(date.getDate() - DAYS_PER_REQUEST);
       startDate = date.toISOString().split('T')[0];
     }
 
-    console.log(`   请求 ${retry + 1}: 从 ${startDate || '最新'} 往前 ${DAYS_PER_REQUEST} 天`);
-
     const klines = await getKline(code, DAYS_PER_REQUEST, startDate);
 
     if (!klines || klines.length === 0) {
-      console.log(`   没有更多数据，停止`);
       break;
     }
 
-    // 检查是否有新数据
     const newEarliest = klines[0].date;
     if (newEarliest === currentStartDate || (currentStartDate && new Date(newEarliest) >= new Date(currentStartDate))) {
-      console.log(`   没有更早数据，停止`);
       break;
     }
 
-    // 合并数据（去重）
     const existingDates = new Set(allKlines.map(k => k.date));
     const uniqueNew = klines.filter(k => !existingDates.has(k.date));
 
     if (uniqueNew.length === 0) {
-      console.log(`   无新数据，停止`);
       break;
     }
 
-    // 添加到最前面
     allKlines.unshift(...uniqueNew);
-    console.log(`   新增 ${uniqueNew.length} 天，总计 ${allKlines.length} 天`);
-
     currentStartDate = newEarliest;
 
-    // 如果获取的数据少于请求的天数，说明已经到头了
     if (klines.length < DAYS_PER_REQUEST) {
-      console.log(`   已到最早数据，停止`);
       break;
     }
 
-    // 避免请求过快
-    await new Promise(r => setTimeout(r, 100));
+    await new Promise(r => setTimeout(r, 50));
   }
 
-  console.log(`   完成: 共 ${allKlines.length} 天`);
-
-  // 按日期排序
   allKlines.sort((a, b) => new Date(a.date) - new Date(b.date));
-
   return allKlines;
 }
 
 // 主函数
 async function main() {
-  console.log('🚀 开始补全股票历史数据...\n');
+  console.log('🚀 开始补全所有股票的历史数据...\n');
 
   // 1. 加载压缩数据
   console.log('📂 加载压缩数据...');
@@ -162,57 +140,59 @@ async function main() {
   const chunks = JSON.parse(fileContent);
   console.log(`   共有 ${chunks.length} 个数据块\n`);
 
-  // 2. 选择要补全的股票（从第一个块选5只测试）
-  const testChunk = decompressChunk(chunks[0].data);
-  const allCodes = Object.keys(testChunk);
-  const codes = allCodes.slice(0, 5); // 只测试5只
+  const CONCURRENCY = 10; // 每块并发数
+  let totalCompleted = 0;
+  let totalFailed = 0;
 
-  console.log(`📋 测试补全 ${codes.length} 只股票: ${codes.join(', ')}`);
-  console.log('⚠️  测试阶段...\n');
+  // 2. 处理所有块
+  for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+    console.log(`\n========== 处理块 ${chunkIndex + 1}/${chunks.length} ==========`);
 
-  // 3. 逐个补全（并发5个）
-  const CONCURRENCY = 5;
-  let completed = 0;
-  let failed = 0;
+    const chunkData = decompressChunk(chunks[chunkIndex].data);
+    const codes = Object.keys(chunkData);
+    console.log(`   该块 ${codes.length} 只股票\n`);
 
-  for (let i = 0; i < codes.length; i += CONCURRENCY) {
-    const batch = codes.slice(i, i + CONCURRENCY);
-    const results = await Promise.all(
-      batch.map(async (code) => {
-        const stock = testChunk[code];
-        const existingKlines = stock.k || [];
-        const newKlines = await completeStockHistory(code, existingKlines);
-        return { code, klines: newKlines };
-      })
-    );
+    let completed = 0;
+    let failed = 0;
 
-    for (const { code, klines } of results) {
-      if (klines && klines.length > 0) {
-        testChunk[code].k = klines;
-        completed++;
-      } else {
-        failed++;
+    // 逐个处理
+    for (let i = 0; i < codes.length; i += CONCURRENCY) {
+      const batch = codes.slice(i, i + CONCURRENCY);
+      const results = await Promise.all(
+        batch.map(async (code) => {
+          const stock = chunkData[code];
+          const existingKlines = stock.k || [];
+          const newKlines = await completeStockHistory(code, existingKlines);
+          return { code, klines: newKlines };
+        })
+      );
+
+      for (const { code, klines } of results) {
+        if (klines && klines.length > 0) {
+          chunkData[code].k = klines;
+          completed++;
+          totalCompleted++;
+        } else {
+          failed++;
+          totalFailed++;
+        }
+      }
+
+      if ((i + CONCURRENCY) % 100 === 0 || i + CONCURRENCY >= codes.length) {
+        console.log(`   进度: ${Math.min(i + CONCURRENCY, codes.length)}/${codes.length}, 成功: ${completed}, 失败: ${failed}`);
       }
     }
 
-    console.log(`\n📊 进度: ${Math.min(i + CONCURRENCY, codes.length)}/${codes.length}, 成功: ${completed}, 失败: ${failed}`);
-
-    // 每50个保存一次
-    if ((i + CONCURRENCY) % 50 === 0) {
-      chunks[0].data = compressChunk(testChunk);
-      fs.writeFileSync(COMPRESSED_FILE, JSON.stringify(chunks));
-      console.log('💾 已保存进度\n');
-    }
+    // 保存该块
+    chunks[chunkIndex].data = compressChunk(chunkData);
+    fs.writeFileSync(COMPRESSED_FILE, JSON.stringify(chunks));
+    console.log(`   ✅ 块 ${chunkIndex + 1} 已保存`);
   }
-
-  // 4. 保存结果
-  chunks[0].data = compressChunk(testChunk);
-  fs.writeFileSync(COMPRESSED_FILE, JSON.stringify(chunks));
 
   console.log('\n========================================');
   console.log('✅ 历史数据补全完成!');
-  console.log(`   成功: ${completed}`);
-  console.log(`   失败: ${failed}`);
+  console.log(`   总成功: ${totalCompleted}`);
+  console.log(`   总失败: ${totalFailed}`);
   console.log('========================================\n');
 }
 

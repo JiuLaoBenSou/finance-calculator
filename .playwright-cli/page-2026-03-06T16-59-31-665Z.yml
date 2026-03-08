@@ -1,0 +1,99 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - navigation [ref=e3]:
+      - generic [ref=e4]: 📊 金融工具箱
+      - list [ref=e5]:
+        - listitem [ref=e6]:
+          - link "首页" [ref=e7] [cursor=pointer]:
+            - /url: index.html
+        - listitem [ref=e8]:
+          - link "计算器" [ref=e9] [cursor=pointer]:
+            - /url: calculator.html
+        - listitem [ref=e10]:
+          - link "回测" [ref=e11] [cursor=pointer]:
+            - /url: backtest.html
+        - listitem [ref=e12]:
+          - link "设置" [ref=e13] [cursor=pointer]:
+            - /url: settings.html
+        - listitem [ref=e14]:
+          - link "关于" [ref=e15] [cursor=pointer]:
+            - /url: about.html
+  - main [ref=e16]:
+    - heading "📈 股票回测" [level=1] [ref=e17]
+    - generic [ref=e18]:
+      - heading "选择股票" [level=2] [ref=e19]
+      - textbox "输入股票代码或名称搜索..." [ref=e21]
+      - generic [ref=e40]:
+        - generic [ref=e41]:
+          - strong [ref=e42]: 已选择：
+          - text: 工商银行 (sh601398)
+        - generic [ref=e44]: 数据范围：2022-11-11 ~ 2026-03-04（约3.3年）
+        - button "清除" [ref=e43] [cursor=pointer]
+      - heading "回测参数" [level=2] [ref=e22]
+      - generic [ref=e23]:
+        - generic [ref=e24]: 回测策略
+        - combobox [ref=e25]:
+          - option "持有策略（一直持有）" [selected]
+          - option "均线策略（金叉买入，死叉卖出）"
+          - option "定投策略（每月买入）"
+      - generic [ref=e26]:
+        - generic [ref=e27]: 初始资金（元）
+        - spinbutton [ref=e28]: "100000"
+      - generic [ref=e29]:
+        - generic [ref=e30]: 回测开始日期
+        - textbox [ref=e31]: 2024-01-01
+      - generic [ref=e32]:
+        - generic [ref=e33]: 回测结束日期
+        - textbox [ref=e34]: 2025-12-31
+      - button "开始回测" [ref=e35] [cursor=pointer]
+    - generic [ref=e45]:
+      - generic [ref=e46]:
+        - generic [ref=e47]:
+          - generic [ref=e48]: 总收益率
+          - generic [ref=e49]: 95.07%
+        - generic [ref=e50]:
+          - generic [ref=e51]: 年化收益率
+          - generic [ref=e52]: 39.73%
+        - generic [ref=e53]:
+          - generic [ref=e54]: 买入次数
+          - generic [ref=e55]: "1"
+        - generic [ref=e56]:
+          - generic [ref=e57]: 卖出次数
+          - generic [ref=e58]: "1"
+        - generic [ref=e59]:
+          - generic [ref=e60]: 胜率
+          - generic [ref=e61]: 100.0%
+        - generic [ref=e62]:
+          - generic [ref=e63]: 最终资产
+          - generic [ref=e64]: 19.51 万
+      - generic [ref=e65]:
+        - heading "收益曲线" [level=3] [ref=e66]
+        - generic [ref=e67]:
+          - button "按日" [ref=e68] [cursor=pointer]
+          - button "按月" [ref=e69] [cursor=pointer]
+          - text: 提示：鼠标滚轮缩放，左键拖拽平移
+      - generic [ref=e72]:
+        - heading "交易记录" [level=3] [ref=e73]
+        - table [ref=e75]:
+          - rowgroup [ref=e76]:
+            - row "日期 操作 价格 股数 金额" [ref=e77]:
+              - columnheader "日期" [ref=e78]
+              - columnheader "操作" [ref=e79]
+              - columnheader "价格" [ref=e80]
+              - columnheader "股数" [ref=e81]
+              - columnheader "金额" [ref=e82]
+          - rowgroup [ref=e83]:
+            - row "2024-01-02 买入 4.01 24912.81 10.00 万" [ref=e84]:
+              - cell "2024-01-02" [ref=e85]
+              - cell "买入" [ref=e86]
+              - cell "4.01" [ref=e87]
+              - cell "24912.81" [ref=e88]
+              - cell "10.00 万" [ref=e89]
+            - row "2025-12-31 卖出 7.83 24912.81 19.51 万" [ref=e90]:
+              - cell "2025-12-31" [ref=e91]
+              - cell "卖出" [ref=e92]
+              - cell "7.83" [ref=e93]
+              - cell "24912.81" [ref=e94]
+              - cell "19.51 万" [ref=e95]
+  - contentinfo [ref=e36]:
+    - paragraph [ref=e37]: © 2026 金融计算器 & 股票回测平台
