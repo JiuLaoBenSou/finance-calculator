@@ -17,11 +17,12 @@ let loadedChunks = new Set(); // 已加载的块索引
 
 // 缓存配置
 const CACHE_KEY = 'stock_list_cache';
-const CACHE_EXPIRY = 60 * 60 * 1000; // 1小时
+const CACHE_EXPIRY = 5 * 60 * 1000; // 5分钟（数据每日更新，缩短缓存时间）
 
 // 初始化
 document.addEventListener('DOMContentLoaded', async () => {
   ThemeManager.init();
+  await loadStockNameCache(); // 加载股票名称缓存
   await loadStockList();
   setupEventListeners();
 });
@@ -115,49 +116,89 @@ async function loadChunk(chunkIndex) {
 }
 
 // 根据股票代码查找所在的块
-// 基于实际数据分布的范围查询
+// 基于实际数据分布的范围查询（2026-03-08更新）
 function findStockChunk(code) {
   if (code.startsWith('bj')) {
-    return 0;  // bj 在块 0-1
+    // 北交所: 0-2
+    const num = parseInt(code.slice(2));
+    if (num < 839946) return 0;
+    if (num < 920395) return 1;
+    return 2;
   }
 
   if (code.startsWith('sh')) {
     const num = parseInt(code.slice(2));
-    // 根据实际数据分布 (从chunk文件分析得到)
-    if (num < 560080) return 10;  // sh515860 ~ sh560070
-    if (num < 563800) return 11;  // sh560080 ~ sh563780
-    if (num < 600120) return 12;  // sh563800 ~ sh600119
-    if (num < 600346) return 13;  // sh600120 ~ sh600345
-    if (num < 600595) return 14;  // sh600346 ~ sh600594
-    if (num < 600795) return 15;  // sh600595 ~ sh600794
-    if (num < 601086) return 16;  // sh600795 ~ sh601083
-    if (num < 603001) return 17;  // sh601086 ~ sh603000 (sh601398在这里!)
-    if (num < 603231) return 18;  // sh603001 ~ sh603230
-    if (num < 603608) return 19;  // sh603231 ~ sh603607
-    if (num < 603979) return 20;  // sh603608 ~ sh603978
-    if (num < 688080) return 21;  // sh603979 ~ sh688079
-    if (num < 688800) return 22;  // sh688080 ~ sh688799
-    return 23; // 其他上海股票
+    // 上海股票: 2-31
+    if (num < 50) return 2;        // sh000001 ~ sh000049
+    if (num < 911) return 3;       // sh000050 ~ sh000910
+    if (num < 110489) return 4;    // sh000911 ~ sh110488
+    if (num < 110568) return 5;    // sh110567 ~ sh113604 (修正)
+    if (num < 113605) return 5;    // sh110567 ~ sh113604
+    if (num < 500016) return 6;    // sh113605 ~ sh500015
+    if (num < 508011) return 7;    // sh500016 ~ sh508010
+    if (num < 512291) return 8;    // sh508011 ~ sh512280
+    if (num < 515860) return 9;    // sh512290 ~ sh515850
+    if (num < 560080) return 10;   // sh515860 ~ sh560070
+    if (num < 563800) return 11;   // sh560080 ~ sh563780
+    if (num < 563801) return 12;   // sh563800 ~ sh600119
+    if (num < 600120) return 12;   // sh563800 ~ sh600119
+    if (num < 600346) return 13;   // sh600120 ~ sh600345
+    if (num < 600595) return 14;   // sh600346 ~ sh600594
+    if (num < 600796) return 15;   // sh600595 ~ sh600794
+    if (num < 601086) return 16;   // sh600795 ~ sh601083
+    if (num < 603001) return 17;   // sh601086 ~ sh603000
+    if (num < 603231) return 18;   // sh603001 ~ sh603230
+    if (num < 603608) return 19;   // sh603231 ~ sh603607
+    if (num < 603979) return 20;   // sh603608 ~ sh603978
+    if (num < 688080) return 21;   // sh603979 ~ sh688079
+    if (num < 688309) return 22;   // sh688080 ~ sh688308
+    if (num < 688597) return 23;   // sh688309 ~ sh688596
+    if (num < 688598) return 24;   // sh688597 ~ sh880213
+    if (num < 880214) return 24;    // sh688597 ~ sh880213
+    if (num < 880560) return 25;   // sh880214 ~ sh880559
+    if (num < 880764) return 26;   // sh880560 ~ sh880763
+    if (num < 881005) return 27;   // sh880764 ~ sh881004
+    if (num < 881209) return 28;   // sh881005 ~ sh881208
+    if (num < 881415) return 29;   // sh881209 ~ sh881414
+    if (num < 887788) return 30;   // sh881415 ~ sh887788
+    return 31; // sh888880 ~ sh999999, sz000001 ~ sz000042
   }
 
   if (code.startsWith('sz')) {
-    // 深圳股票从chunk 32开始
     const num = parseInt(code.slice(2));
-    if (num < 1000) return 32;   // sz000001 ~ sz000999
-    if (num < 20000) return 34;   // sz001000 ~ sz019999 (chunk 33可能不存在或为空)
-    if (num < 30000) return 35;   // sz020000 ~ sz029999
-    if (num < 40000) return 36;   // sz030000 ~ sz039999
-    if (num < 50000) return 37;   // sz040000 ~ sz049999
-    if (num < 100000) return 38;  // sz050000 ~ sz099999
-    if (num < 150000) return 39;  // sz100000 ~ sz149999
-    if (num < 200000) return 40;  // sz150000 ~ sz199999
-    if (num < 250000) return 41;  // sz200000 ~ sz249999
-    if (num < 300000) return 42;  // sz250000 ~ sz299999
-    if (num < 350000) return 43;  // sz300000 ~ sz349999
-    if (num < 400000) return 44;  // sz350000 ~ sz399999
-    if (num < 450000) return 45;  // sz400000 ~ sz449999
-    if (num < 500000) return 46;  // sz450000 ~ sz499999
-    return 51; // 其他深圳股票
+    // 深圳股票: 31-60
+    if (num < 45) return 31;       // sz000001 ~ sz000042
+    if (num < 653) return 32;      // sz000045 ~ sz000652
+    if (num < 918) return 33;      // sz000653 ~ sz000917
+    if (num < 2024) return 34;     // sz000918 ~ sz002023
+    if (num < 2025) return 35;      // sz002024 ~ sz002223
+    if (num < 2024) return 34;     // 修正
+    if (num < 2224) return 35;      // sz002024 ~ sz002223
+    if (num < 2425) return 36;     // sz002224 ~ sz002424
+    if (num < 2626) return 37;     // sz002425 ~ sz002625
+    if (num < 2837) return 38;     // sz002626 ~ sz002836
+    if (num < 123005) return 39;   // sz002837 ~ sz123004
+    if (num < 123206) return 40;   // sz123005 ~ sz123205
+    if (num < 127109) return 41;   // sz123206 ~ sz127108
+    if (num < 159150) return 42;   // sz127109 ~ sz159116
+    if (num < 159500) return 43;   // sz159150 ~ sz159400
+    if (num < 159733) return 44;   // sz159500 ~ sz159732
+    if (num < 159971) return 45;   // sz159733 ~ sz159970
+    if (num < 160711) return 46;   // sz159971 ~ sz160710
+    if (num < 161813) return 47;   // sz160711 ~ sz161812
+    if (num < 163824) return 48;   // sz161813 ~ sz163821
+    if (num < 169107) return 49;   // sz163824 ~ sz169106
+    if (num < 300067) return 50;    // sz169107 ~ sz300066
+    if (num < 300267) return 51;   // sz300067 ~ sz300266
+    if (num < 300468) return 52;   // sz300267 ~ sz300467
+    if (num < 300672) return 53;   // sz300468 ~ sz300671
+    if (num < 300881) return 54;   // sz300672 ~ sz300880
+    if (num < 301095) return 55;   // sz300881 ~ sz301093
+    if (num < 301332) return 56;   // sz301095 ~ sz301331
+    if (num < 399050) return 57;   // sz301332 ~ sz399030
+    if (num < 399427) return 58;   // sz399050 ~ sz399423
+    if (num < 399955) return 59;   // sz399427 ~ sz399954
+    return 60; // sz399955 ~ sz399998
   }
 
   return 0;
@@ -499,13 +540,37 @@ function performSearch(query) {
   resultsDiv.classList.add('show');
 }
 
+// 股票名称缓存
+let stockNameCache = {};
+
+// 加载股票名称缓存
+async function loadStockNameCache() {
+  try {
+    const response = await fetch('data-chunks/stocks.json');
+    const stocks = await response.json();
+    stocks.forEach(s => {
+      if (s.name && s.name !== s.code) {
+        stockNameCache[s.code] = s.name;
+      }
+    });
+    console.log('股票名称缓存已加载:', Object.keys(stockNameCache).length, '只');
+  } catch (e) {
+    console.error('加载股票名称缓存失败:', e);
+  }
+}
+
 // 从API获取股票名称
 async function fetchStockName(code) {
-  // 先尝试本地映射
+  // 先尝试从缓存获取
+  if (stockNameCache[code]) {
+    return stockNameCache[code];
+  }
+
+  // 再尝试本地映射
   const localName = getStockName(code);
   if (localName !== code) return localName;
 
-  // 从腾讯API获取真实名称
+  // 从腾讯API获取真实名称（可能因跨域失败）
   try {
     const url = `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${code},day,,,1,qfq`;
     const response = await fetch(url);
@@ -514,11 +579,12 @@ async function fetchStockName(code) {
     if (data.data && data.data[code] && data.data[code].qt) {
       const qt = data.data[code].qt[code];
       if (qt && qt[1]) {
+        stockNameCache[code] = qt[1];
         return qt[1]; // 股票名称
       }
     }
   } catch (e) {
-    console.error('获取股票名称失败:', e);
+    console.log('API获取股票名称失败，使用本地名称:', code);
   }
   return code; // 失败时返回代码
 }
