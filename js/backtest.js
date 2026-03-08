@@ -27,24 +27,34 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupEventListeners();
 });
 
-// 解压 gzip 数据（需要 pako.js）
-function decompressGzip(base64Data) {
-  if (typeof pako === 'undefined') {
-    console.error('pako.js 未加载');
-    return null;
+// 转换K线数据：支持数组格式 [[date,open,high,low,close,volume],...] 和对象格式 [{date,open,...},...]
+function convertKlines(kData) {
+  if (!kData || !Array.isArray(kData) || kData.length === 0) {
+    return [];
   }
-  try {
-    const binaryString = atob(base64Data);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
+
+  return kData.map(k => {
+    // 对象格式：{date, open, high, low, close, volume}
+    if (typeof k === 'object' && k.date) {
+      return {
+        date: k.date,
+        open: parseFloat(k.open),
+        high: parseFloat(k.high),
+        low: parseFloat(k.low),
+        close: parseFloat(k.close),
+        volume: parseFloat(k.volume)
+      };
     }
-    const decompressed = pako.inflate(bytes, { to: 'string' });
-    return JSON.parse(decompressed);
-  } catch (e) {
-    console.error('解压失败:', e);
-    return null;
-  }
+    // 数组格式：[date, open, high, low, close, volume]
+    return {
+      date: k[0],
+      open: parseFloat(k[1]),
+      high: parseFloat(k[2]),
+      low: parseFloat(k[3]),
+      close: parseFloat(k[4]),
+      volume: parseFloat(k[5])
+    };
+  });
 }
 // 缓存chunks索引
 let chunksIndexCache = null;
@@ -649,15 +659,8 @@ async function loadStockData(code) {
 
     if (compressedResult && compressedResult.stock) {
       const stock = compressedResult.stock;
-      // 转换格式：k 是数组 [date, open, high, low, close, volume]
-      const klines = stock.k ? stock.k.map(k => ({
-        date: k[0],
-        open: parseFloat(k[1]),
-        high: parseFloat(k[2]),
-        low: parseFloat(k[3]),
-        close: parseFloat(k[4]),
-        volume: parseFloat(k[5])
-      })) : [];
+      // 转换格式：支持数组格式和对象格式
+      const klines = convertKlines(stock.k);
 
       selectedStock.data = {
         code: stock.c || code,
