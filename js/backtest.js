@@ -488,15 +488,43 @@ function performSearch(query) {
   resultsDiv.classList.add('show');
 }
 
+// 从API获取股票名称
+async function fetchStockName(code) {
+  // 先尝试本地映射
+  const localName = getStockName(code);
+  if (localName !== code) return localName;
+
+  // 从腾讯API获取真实名称
+  try {
+    const url = `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${code},day,,,1,qfq`;
+    const response = await fetch(url);
+    const text = await response.text();
+    const data = JSON.parse(text);
+    if (data.data && data.data[code] && data.data[code].qt) {
+      const qt = data.data[code].qt[code];
+      if (qt && qt[1]) {
+        return qt[1]; // 股票名称
+      }
+    }
+  } catch (e) {
+    console.error('获取股票名称失败:', e);
+  }
+  return code; // 失败时返回代码
+}
+
 // 选择股票
 async function selectStock(code, name) {
-  selectedStock = { code, name };
-
+  // 显示加载状态
   document.getElementById('search-results').classList.remove('show');
   document.getElementById('stock-search').value = '';
   document.getElementById('selected-stock').style.display = 'block';
-  document.getElementById('selected-stock-name').textContent = name;
+  document.getElementById('selected-stock-name').textContent = '加载中...';
   document.getElementById('selected-stock-code').textContent = code;
+
+  // 获取真实名称
+  const realName = await fetchStockName(code);
+  selectedStock = { code, name: realName };
+  document.getElementById('selected-stock-name').textContent = realName;
 
   // 加载股票数据
   await loadStockData(code);
