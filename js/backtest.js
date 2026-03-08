@@ -64,64 +64,22 @@ async function loadChunksIndex() {
   }
 }
 
-// 从data-chunks加载所有股票列表
+// 从data-chunks加载股票列表（轻量级索引文件）
 async function loadStockListFromChunks() {
-  console.log('开始从data-chunks加载股票列表...');
+  console.log('加载股票列表索引...');
 
-  // 先加载索引
-  console.log('加载chunks索引...');
-  const chunks = await loadChunksIndex();
-  console.log('chunks索引:', chunks ? `${chunks.length} 个块` : '加载失败');
-  if (!chunks) {
-    console.error('无法加载chunks索引');
+  try {
+    const response = await fetch('data-chunks/stocks.json');
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const stocks = await response.json();
+    console.log(`加载成功: ${stocks.length} 只股票`);
+    return stocks;
+  } catch (e) {
+    console.error('加载股票列表失败:', e);
     return null;
   }
-
-  const allStocks = [];
-  const loadedChunkData = {};
-  let successCount = 0;
-  let failCount = 0;
-
-  // 加载所有chunk
-  for (let i = 0; i < chunks.length; i++) {
-    try {
-      console.log(`加载chunk ${i}: ${chunks[i].filename}...`);
-      const response = await fetch(`data-chunks/${chunks[i].filename}`);
-      if (!response.ok) {
-        console.error(`chunk ${i} HTTP错误: ${response.status}`);
-        failCount++;
-        continue;
-      }
-      const chunkData = await response.json();
-      const stockData = decompressGzip(chunkData.data);
-      if (!stockData) {
-        console.error(`chunk ${i} 解压失败`);
-        failCount++;
-        continue;
-      }
-      loadedChunkData[i] = stockData;
-      successCount++;
-      console.log(`chunk ${i} 加载成功, ${Object.keys(stockData).length} 只股票`);
-    } catch (e) {
-      console.error(`加载chunk ${i}失败:`, e);
-      failCount++;
-    }
-  }
-
-  console.log(`加载完成: 成功 ${successCount} 个, 失败 ${failCount} 个`);
-
-  // 提取股票代码和名称
-  for (const chunkData of Object.values(loadedChunkData)) {
-    for (const [code, stock] of Object.entries(chunkData)) {
-      allStocks.push({
-        code: code,
-        name: stock.n || stock.c || code
-      });
-    }
-  }
-
-  console.log(`总共加载 ${allStocks.length} 只股票`);
-  return allStocks;
 }
 
 // 加载指定块的数据
