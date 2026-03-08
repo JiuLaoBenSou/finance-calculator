@@ -653,33 +653,64 @@ async function tryFetchAPI(code) {
 
 // 加载股票数据
 async function loadStockData(code) {
+  console.log('loadStockData: 开始加载', code);
   try {
     // 先尝试从压缩数据加载
     const compressedResult = await getStockFromCompressedData(code);
+    console.log('loadStockData: compressedResult', compressedResult ? '有数据' : 'null');
 
     if (compressedResult && compressedResult.stock) {
       const stock = compressedResult.stock;
       // 转换格式：支持数组格式和对象格式
       const klines = convertKlines(stock.k);
+      console.log('loadStockData: klines数量', klines.length);
 
       selectedStock.data = {
         code: stock.c || code,
         name: stock.n || '',
         klines: klines
       };
+      console.log('loadStockData: 数据加载成功');
     } else {
-      // 如果压缩数据中没有，尝试从API获取
-      console.log('压缩数据中未找到，从API获取...');
-      const apiData = await tryFetchAPI(code);
-      if (apiData && apiData.klines && apiData.klines.length > 0) {
-        selectedStock.data = apiData;
-      } else {
-        throw new Error('无法获取股票数据');
+      // 压缩数据中没有，尝试从本地其他chunk搜索（备用方案）
+      console.log('loadStockData: 压缩数据中未找到，从其他chunk搜索...');
+      // 搜索所有chunk
+      const chunks = await loadChunksIndex();
+      for (let i = 0; i < chunks.length; i++) {
+        const data = await loadChunk(i);
+        if (data && data[code]) {
+          const stock = data[code];
+          const klines = convertKlines(stock.k);
+          selectedStock.data = {
+            code: stock.c || code,
+            name: stock.n || '',
+            klines: klines
+          };
+          console.log('loadStockData: 从chunk', i, '找到数据');
+          break;
+        }
+      }
+
+      // 如果还是没找到，尝试API（可能因跨域失败）
+      if (!selectedStock.data) {
+        console.log('loadStockData: 所有chunk都未找到，尝试API...');
+        try {
+          const apiData = await tryFetchAPI(code);
+          if (apiData && apiData.klines && apiData.klines.length > 0) {
+            selectedStock.data = apiData;
+            console.log('loadStockData: API获取成功');
+          } else {
+            throw new Error('API也无数据');
+          }
+        } catch (apiError) {
+          console.log('loadStockData: API也失败', apiError.message);
+          throw new Error('无法获取股票数据');
+        }
       }
     }
 
     // 设置日期范围
-    if (selectedStock.data.klines && selectedStock.data.klines.length > 0) {
+    if (selectedStock.data && selectedStock.data.klines && selectedStock.data.klines.length > 0) {
       const data = selectedStock.data;
       const startDateInput = document.getElementById('start-date');
       const endDateInput = document.getElementById('end-date');
