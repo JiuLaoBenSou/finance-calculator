@@ -14,6 +14,11 @@ on:
       - 'scripts/daily-update.js'
       - '.github/workflows/daily-update.yml'
 
+# 防止并发运行
+concurrency:
+  group: daily-update
+  cancel-in-progress: false
+
 jobs:
   update-data:
     runs-on: ubuntu-latest
@@ -85,8 +90,23 @@ jobs:
         run: |
           echo "=== 提交并推送 ==="
 
-          # 获取远程最新
+          # 等待一下让远程稳定
+          sleep 3
+
+          # 获取远程最新并rebase
           git fetch origin
+
+          # 检查是否有远程更新
+          LOCAL_HEAD=$(git rev-parse HEAD)
+          REMOTE_HEAD=$(git rev-parse origin/master)
+
+          if [ "$LOCAL_HEAD" != "$REMOTE_HEAD" ]; then
+            echo "远程有新内容，尝试合并..."
+            git rebase origin/master || {
+              echo "Rebase失败，尝试合并..."
+              git merge origin/master --no-edit
+            }
+          fi
 
           # 设置push用的token
           PUSH_TOKEN="x-access-token:${{ github.token }}"
@@ -95,16 +115,31 @@ jobs:
           # 添加数据
           git add data-chunks/
 
+          # 再次检查状态
+          if git diff --cached --quiet; then
+            echo "没有需要提交的变更"
+            exit 0
+          fi
+
           # 提交
           COMMIT_MSG="daily: 更新股票数据 $(date +'%Y-%m-%d')"
           echo "提交信息: ${COMMIT_MSG}"
-          git commit -m "${COMMIT_MSG}" || echo "没有需要提交的变更"
+          git commit -m "${COMMIT_MSG}"
 
-          # 推送
-          git push ${PUSH_URL} master 2>&1 || {
-            echo "Push失败，尝试force push..."
-            git push --force ${PUSH_URL} master
-          }
+          # 推送（带重试）
+          for i in 1 2 3; do
+            echo "尝试推送第${i}次..."
+            if git push ${PUSH_URL} master; then
+              echo "✅ 推送成功"
+              exit 0
+            fi
+            echo "推送失败，等待5秒后重试..."
+            sleep 5
+            git fetch origin
+            git rebase origin/master
+          done
+
+          echo "❌ 推送最终失败"
 
       - name: 成功结果
         if: steps.check.outputs.has_changes == 'true'
