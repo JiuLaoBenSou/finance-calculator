@@ -144,17 +144,19 @@ function findStockChunk(code) {
     // 深圳股票从chunk 32开始
     const num = parseInt(code.slice(2));
     if (num < 1000) return 32;   // sz000001 ~ sz000999
-    if (num < 10000) return 33;   // sz001000 ~ sz009999
-    if (num < 30000) return 34;   // sz010000 ~ sz029999
-    if (num < 250000) return 35;  // sz030000 ~ sz249999
-    if (num < 300000) return 36;  // sz250000 ~ sz299999
-    if (num < 400000) return 37;  // sz300000 ~ sz399999
-    if (num < 500000) return 38;  // sz400000 ~ sz499999
-    if (num < 130000) return 39;  // sz100000 ~ sz129999
-    if (num < 140000) return 40;  // sz130000 ~ sz139999
-    if (num < 160000) return 42;  // sz140000 ~ sz159999
-    if (num < 170000) return 43;  // sz160000 ~ sz169999
-    if (num < 180000) return 44;  // sz170000 ~ sz179999
+    if (num < 20000) return 34;   // sz001000 ~ sz019999 (chunk 33可能不存在或为空)
+    if (num < 30000) return 35;   // sz020000 ~ sz029999
+    if (num < 40000) return 36;   // sz030000 ~ sz039999
+    if (num < 50000) return 37;   // sz040000 ~ sz049999
+    if (num < 100000) return 38;  // sz050000 ~ sz099999
+    if (num < 150000) return 39;  // sz100000 ~ sz149999
+    if (num < 200000) return 40;  // sz150000 ~ sz199999
+    if (num < 250000) return 41;  // sz200000 ~ sz249999
+    if (num < 300000) return 42;  // sz250000 ~ sz299999
+    if (num < 350000) return 43;  // sz300000 ~ sz349999
+    if (num < 400000) return 44;  // sz350000 ~ sz399999
+    if (num < 450000) return 45;  // sz400000 ~ sz449999
+    if (num < 500000) return 46;  // sz450000 ~ sz499999
     return 51; // 其他深圳股票
   }
 
@@ -183,8 +185,8 @@ async function getStockFromCompressedData(code) {
           continue;
         }
 
-        // 只加载需要的块
-        const data = decompressGzip(chunks[i].data);
+        // 使用loadChunk加载块数据
+        const data = await loadChunk(i);
         if (data && data[code]) {
           compressedDataCache[i] = data;
           loadedChunks.add(i);
