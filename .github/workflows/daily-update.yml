@@ -67,7 +67,9 @@ jobs:
       - name: 提交并推送更新
         if: steps.check.outputs.has_changes == 'true'
         run: |
-          git pull --rebase origin master
+          # 先清理本地未提交的更改，强制同步到远程最新版本
+          git fetch origin
+          git reset --hard origin/master
           git add data-chunks/
           git commit -m "daily: 更新股票数据 $(date +'%Y-%m-%d')"
           git push https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git master --force
