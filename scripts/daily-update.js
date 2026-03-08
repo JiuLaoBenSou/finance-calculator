@@ -19,8 +19,24 @@ const INDEX_FILE = path.join(CHUNKS_DIR, 'index.json');
 const STOCKS_INDEX_FILE = path.join(CHUNKS_DIR, 'stocks.json');
 const PROXY = process.env.HTTP_PROXY || process.env.HTTPS_PROXY || '';
 
-// 生成股票列表索引文件
+// 生成股票列表索引文件（保留已有的中文名）
 function generateStocksIndex(chunks) {
+  // 先读取现有的stocks.json，保留中文名
+  let existingNames = {};
+  try {
+    if (fs.existsSync(STOCKS_INDEX_FILE)) {
+      const existing = JSON.parse(fs.readFileSync(STOCKS_INDEX_FILE, 'utf8'));
+      existing.forEach(s => {
+        if (s.name && s.name !== s.code) {
+          existingNames[s.code] = s.name;
+        }
+      });
+      console.log(`   保留已有中文名: ${Object.keys(existingNames).length} 只`);
+    }
+  } catch (e) {
+    console.log('   无法读取现有索引文件');
+  }
+
   const allStocks = [];
   const stockSet = new Set();
 
@@ -34,14 +50,18 @@ function generateStocksIndex(chunks) {
     for (const [code, stock] of Object.entries(stockData)) {
       if (!stockSet.has(code)) {
         stockSet.add(code);
-        allStocks.push({ code, name: stock.n || stock.c || code });
+        // 优先使用已有的中文名，否则用chunk中的名称
+        const name = existingNames[code] || stock.n || stock.c || code;
+        allStocks.push({ code, name });
       }
     }
   }
 
   allStocks.sort((a, b) => a.code.localeCompare(b.code));
   fs.writeFileSync(STOCKS_INDEX_FILE, JSON.stringify(allStocks));
-  console.log(`   股票索引已更新: ${allStocks.length} 只股票`);
+
+  const hasNameCount = allStocks.filter(s => s.name && s.name !== s.code).length;
+  console.log(`   股票索引已更新: ${allStocks.length} 只, 有中文名: ${hasNameCount} 只`);
 }
 
 // API 配置
