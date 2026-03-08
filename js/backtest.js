@@ -721,6 +721,10 @@ async function loadStockData(code) {
   } catch (error) {
     console.error('加载股票数据失败:', error);
     selectedStock.data = null;
+    // 显示错误提示
+    document.getElementById('selected-stock-name').textContent = '加载失败';
+    document.getElementById('stock-data-range').textContent = '无法加载股票数据: ' + error.message;
+    alert('加载股票数据失败，请刷新页面重试或选择其他股票');
   }
 }
 
