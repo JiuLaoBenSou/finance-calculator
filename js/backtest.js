@@ -467,12 +467,21 @@ function performSearch(query) {
   // 获取中文关键词
   const chineseKeyword = getChineseKeyword(query);
 
-  // 搜索匹配：代码、名称、或拼音首字母
+  // 搜索匹配：代码、名称（中文名或代码）、拼音
   const matches = stocks.filter(s => {
+    const stockName = getStockName(s.code); // 获取中文名称
     const codeMatch = s.code.toLowerCase().includes(lowerQuery);
-    const nameMatch = s.name.toLowerCase().includes(lowerQuery);
-    const pinyinMatch = chineseKeyword && s.name.includes(chineseKeyword);
-    return codeMatch || nameMatch || pinyinMatch;
+    const nameMatch = stockName.toLowerCase().includes(lowerQuery);
+    // 拼音匹配：检查查询是否匹配拼音映射的中文名称
+    let pinyinMatch = false;
+    if (chineseKeyword) {
+      pinyinMatch = stockName.includes(chineseKeyword);
+    }
+    // 也支持反向：输入中文名时匹配拼音
+    const reversePinyinMatch = Object.entries(pinyinMap).some(([py, cn]) =>
+      lowerQuery === py.toLowerCase() && stockName.includes(cn)
+    );
+    return codeMatch || nameMatch || pinyinMatch || reversePinyinMatch;
   }).slice(0, 10);
 
   if (matches.length === 0) {
