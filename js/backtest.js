@@ -64,6 +64,39 @@ async function loadChunksIndex() {
   }
 }
 
+// 从data-chunks加载所有股票列表
+async function loadStockListFromChunks() {
+  const chunks = await loadChunksIndex();
+  if (!chunks) return null;
+
+  const allStocks = [];
+  const loadedChunkData = {};
+
+  // 加载所有chunk
+  for (let i = 0; i < chunks.length; i++) {
+    try {
+      const response = await fetch(`data-chunks/${chunks[i].filename}`);
+      const chunkData = await response.json();
+      const stockData = decompressGzip(chunkData.data);
+      loadedChunkData[i] = stockData;
+    } catch (e) {
+      console.error(`加载chunk ${i}失败:`, e);
+    }
+  }
+
+  // 提取股票代码和名称
+  for (const chunkData of Object.values(loadedChunkData)) {
+    for (const [code, stock] of Object.entries(chunkData)) {
+      allStocks.push({
+        code: code,
+        name: stock.n || stock.c || code
+      });
+    }
+  }
+
+  return allStocks;
+}
+
 // 加载指定块的数据
 async function loadChunk(chunkIndex) {
   if (loadedChunks.has(chunkIndex)) {
@@ -236,18 +269,11 @@ async function loadStockList() {
   searchInput.disabled = true;
 
   try {
-    const response = await fetch('data/stocks.json');
+    // 从data-chunks加载股票列表
+    const stocks = await loadStockListFromChunks();
 
-    // 检查响应状态
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    const stocks = await response.json();
-
-    // 验证数据格式
-    if (!Array.isArray(stocks)) {
-      throw new Error('股票数据格式错误');
+    if (!stocks || stocks.length === 0) {
+      throw new Error('无法加载股票数据');
     }
 
     // 保存到缓存
