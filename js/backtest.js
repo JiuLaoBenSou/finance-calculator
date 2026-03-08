@@ -27,6 +27,26 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupEventListeners();
 });
 
+// 解压 gzip 数据（需要 pako.js）
+function decompressGzip(base64Data) {
+  if (typeof pako === 'undefined') {
+    console.error('pako.js 未加载');
+    return null;
+  }
+  try {
+    const binaryString = atob(base64Data);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    const decompressed = pako.inflate(bytes, { to: 'string' });
+    return JSON.parse(decompressed);
+  } catch (e) {
+    console.error('解压失败:', e);
+    return null;
+  }
+}
+
 // 转换K线数据：支持数组格式 [[date,open,high,low,close,volume],...] 和对象格式 [{date,open,...},...]
 function convertKlines(kData) {
   if (!kData || !Array.isArray(kData) || kData.length === 0) {
