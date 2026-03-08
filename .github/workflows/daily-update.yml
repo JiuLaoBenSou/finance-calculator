@@ -72,3 +72,7 @@ jobs:
       - name: 记录更新结果
         if: steps.check.outputs.has_changes == 'true'
         run: echo "✅ 数据已更新并推送"
+
+      - name: 无需更新
+        if: steps.check.outputs.has_changes != 'true'
+        run: echo "✅ 数据已是最新，无需更新"
