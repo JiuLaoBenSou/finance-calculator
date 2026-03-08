@@ -24,11 +24,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0  # 获取完整历史，用于推送
-          lfs: true        # 拉取 LFS 文件
-
-      - name: 拉取 LFS 文件
-        run: |
-          git lfs pull
 
       - name: 安装 Node.js
         uses: actions/setup-node@v4
