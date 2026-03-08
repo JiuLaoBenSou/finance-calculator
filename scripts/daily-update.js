@@ -124,23 +124,23 @@ function compressChunk(stockData) {
 }
 
 
-// 更新单个股票数据（优先使用东方财富API，不需要代理）
+// 更新单个股票数据（优先使用腾讯API，不需要代理）
 async function updateStock(code, existingKlines) {
   let newKlines = null;
-  let usedAPI = 'eastmoney';
+  let usedAPI = 'tencent';
 
-  // 优先使用东方财富API（不需要代理）
-  const result = await getKlineFromEastmoney(code, 100);
+  // 优先使用腾讯API（不需要代理）
+  const result = await getKlineFromTencent(code, 100);
   if (result.klines && result.klines.length > 0) {
     newKlines = result.klines;
   }
 
-  // 如果东方财富失败，尝试腾讯API（需要代理）
+  // 如果腾讯失败，尝试东方财富API
   if (!newKlines || newKlines.length === 0) {
-    const tencentResult = await getKlineFromTencent(code, 100);
-    if (tencentResult.klines && tencentResult.klines.length > 0) {
-      newKlines = tencentResult.klines;
-      usedAPI = 'tencent';
+    const emResult = await getKlineFromEastmoney(code, 100);
+    if (emResult.klines && emResult.klines.length > 0) {
+      newKlines = emResult.klines;
+      usedAPI = 'eastmoney';
     }
   }
 
