@@ -16,7 +16,33 @@ const zlib = require('zlib');
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const CHUNKS_DIR = path.join(__dirname, '..', 'data-chunks');
 const INDEX_FILE = path.join(CHUNKS_DIR, 'index.json');
+const STOCKS_INDEX_FILE = path.join(CHUNKS_DIR, 'stocks.json');
 const PROXY = process.env.HTTP_PROXY || process.env.HTTPS_PROXY || '';
+
+// 生成股票列表索引文件
+function generateStocksIndex(chunks) {
+  const allStocks = [];
+  const stockSet = new Set();
+
+  for (let i = 0; i < chunks.length; i++) {
+    const chunkPath = path.join(CHUNKS_DIR, chunks[i].filename);
+    const chunkContent = JSON.parse(fs.readFileSync(chunkPath, 'utf8'));
+    const binary = Buffer.from(chunkContent.data, 'base64');
+    const decompressed = zlib.gunzipSync(binary);
+    const stockData = JSON.parse(decompressed.toString('utf8'));
+
+    for (const [code, stock] of Object.entries(stockData)) {
+      if (!stockSet.has(code)) {
+        stockSet.add(code);
+        allStocks.push({ code, name: stock.n || stock.c || code });
+      }
+    }
+  }
+
+  allStocks.sort((a, b) => a.code.localeCompare(b.code));
+  fs.writeFileSync(STOCKS_INDEX_FILE, JSON.stringify(allStocks));
+  console.log(`   股票索引已更新: ${allStocks.length} 只股票`);
+}
 
 // API 配置
 const TENCENT_API = 'https://web.ifzq.gtimg.cn';
@@ -298,6 +324,10 @@ async function main() {
   } else {
     console.log(`\n✅ 最终校验通过：所有股票更新成功`);
   }
+
+  // 重新生成股票列表索引文件
+  console.log('\n📦 重新生成股票列表索引文件...');
+  generateStocksIndex(chunks);
 
   console.log('\n========================================');
   console.log('✅ 每日更新完成!');
