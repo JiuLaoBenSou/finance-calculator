@@ -23,7 +23,6 @@ jobs:
         with:
           fetch-depth: 0  # 获取完整历史，用于推送
           lfs: true        # 拉取 LFS 文件
-          branch: master   # 指定分支
 
       - name: 拉取 LFS 文件
         run: |
@@ -68,9 +67,7 @@ jobs:
         run: |
           git add data-chunks/
           git commit -m "daily: 更新股票数据 $(date +'%Y-%m-%d')"
-          git push origin master
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          git push https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git master
 
       - name: 记录更新结果
         if: steps.check.outputs.has_changes == 'true'
