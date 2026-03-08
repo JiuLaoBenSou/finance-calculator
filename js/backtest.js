@@ -644,7 +644,6 @@ async function selectStock(code, name) {
   document.getElementById('stock-search').value = '';
   document.getElementById('selected-stock').style.display = 'block';
   document.getElementById('selected-stock-name').textContent = '加载中...';
-  document.getElementById('selected-stock-code').textContent = code;
 
   // 获取真实名称
   const realName = await fetchStockName(code);
