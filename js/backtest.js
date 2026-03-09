@@ -541,6 +541,14 @@ function getChineseKeyword(query) {
   return pinyinMap[lowerQuery] || '';
 }
 
+// 搜索按钮点击事件
+function doSearch() {
+  const query = document.getElementById('stock-search').value.trim();
+  if (query) {
+    performSearch(query);
+  }
+}
+
 function performSearch(query) {
   const resultsDiv = document.getElementById('search-results');
   const lowerQuery = query.toLowerCase();
