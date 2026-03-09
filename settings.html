@@ -4,12 +4,15 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>设置 - 金融工具箱</title>
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/style.css?v=20260311">
 </head>
 <body>
   <header class="header">
     <nav class="nav">
-      <div class="logo">📊 金融工具箱</div>
+      <div class="logo">
+        <div class="logo-icon">📊</div>
+        <span>金融工具箱</span>
+      </div>
       <button class="mobile-menu-btn">☰</button>
       <ul class="nav-links">
         <li><a href="index.html">首页</a></li>
@@ -30,8 +33,25 @@
 
       <div class="settings-item">
         <div>
+          <div class="settings-label">风格选择</div>
+          <div class="settings-desc">选择界面整体风格</div>
+        </div>
+        <div class="radio-group" id="style-options">
+          <label class="radio-label" data-value="original">
+            <input type="radio" name="style" value="original">
+            <span>🌐 原始风格</span>
+          </label>
+          <label class="radio-label" data-value="warm">
+            <input type="radio" name="style" value="warm">
+            <span>📝 暖色手写</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="settings-item">
+        <div>
           <div class="settings-label">界面主题</div>
-          <div class="settings-desc">选择界面颜色风格</div>
+          <div class="settings-desc">选择浅色/深色模式</div>
         </div>
         <div class="radio-group" id="theme-options">
           <label class="radio-label" data-value="light">
@@ -92,12 +112,12 @@
     <section class="settings-section">
       <h2>👀 预览效果</h2>
       <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
-        <div style="padding: 1rem; background: var(--color-up-bg); border-radius: 8px; text-align: center;">
-          <div style="font-size: 2rem; color: var(--color-up);">+5.26%</div>
+        <div style="padding: 1rem; background: rgba(239,83,80,0.1); border-radius: 8px; text-align: center;">
+          <div style="font-size: 2rem; color: #ef5350;">+5.26%</div>
           <div style="color: var(--text-secondary);">上涨示例</div>
         </div>
-        <div style="padding: 1rem; background: var(--color-down-bg); border-radius: 8px; text-align: center;">
-          <div style="font-size: 2rem; color: var(--color-down);">-3.21%</div>
+        <div style="padding: 1rem; background: rgba(38,166,154,0.1); border-radius: 8px; text-align: center;">
+          <div style="font-size: 2rem; color: #26a69a;">-3.21%</div>
           <div style="color: var(--text-secondary);">下跌示例</div>
         </div>
       </div>
@@ -113,10 +133,16 @@
 
   <footer class="footer">
     <p>© 2026 金融计算器 & 股票回测平台</p>
+    <p style="margin-top: 0.5rem; font-size: 0.85rem;">
+      👥 访问人数：<span id="busuanzi_container_site_pv"><span id="busuanzi_value_site_pv">-</span></span>
+    </p>
   </footer>
 
-  <script src="js/theme.js"></script>
-  <script src="js/main.js"></script>
-  <script src="js/settings.js"></script>
+  <!-- 不蒜子计数器 -->
+  <script async src="//busuanzi.icodeq.com/busuanzi.pure.mini.js"></script>
+
+  <script src="js/theme.js?v=20260312"></script>
+  <script src="js/main.js?v=20260312"></script>
+  <script src="js/settings.js?v=20260312"></script>
 </body>
 </html>

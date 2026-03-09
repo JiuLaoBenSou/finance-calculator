@@ -13,6 +13,15 @@ document.addEventListener('DOMContentLoaded', () => {
 function loadSettings() {
   const settings = ThemeManager.getSettings();
 
+  // 风格选择
+  document.querySelectorAll('#style-options .radio-label').forEach(label => {
+    label.classList.remove('selected');
+    if (label.dataset.value === (settings.style || 'warm')) {
+      label.classList.add('selected');
+      label.querySelector('input').checked = true;
+    }
+  });
+
   // 主题
   document.querySelectorAll('#theme-options .radio-label').forEach(label => {
     label.classList.remove('selected');
@@ -43,6 +52,20 @@ function loadSettings() {
 
 // 设置事件监听
 function setupEventListeners() {
+  // 风格选择
+  document.querySelectorAll('#style-options .radio-label').forEach(label => {
+    label.addEventListener('click', () => {
+      const value = label.dataset.value;
+      document.querySelectorAll('#style-options .radio-label').forEach(l => l.classList.remove('selected'));
+      label.classList.add('selected');
+
+      const settings = ThemeManager.getSettings();
+      settings.style = value;
+      ThemeManager.saveSettings(settings);
+      ThemeManager.applySettings(settings);
+    });
+  });
+
   // 主题选择
   document.querySelectorAll('#theme-options .radio-label').forEach(label => {
     label.addEventListener('click', () => {

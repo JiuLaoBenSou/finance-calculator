@@ -1,14 +1,15 @@
 /**
  * 主题管理模块
- * 处理主题切换、涨跌颜色、色盲模式等功能
+ * 处理主题切换、风格选择、涨跌颜色、色盲模式等功能
  */
 
 const ThemeManager = {
   // 默认设置
   defaults: {
-    theme: 'system', // light, dark, system
+    style: 'warm',      // original, warm (风格)
+    theme: 'system',    // light, dark, system (界面)
     colorScheme: 'red-green', // green-red, red-green
-    colorblind: '0' // 0, 1, 2
+    colorblind: '0'     // 0, 1, 2
   },
 
   // 获取设置
@@ -37,7 +38,10 @@ const ThemeManager = {
   applySettings(settings) {
     const html = document.documentElement;
 
-    // 主题
+    // 风格选择
+    html.setAttribute('data-style', settings.style || 'warm');
+
+    // 界面主题
     let theme = settings.theme;
     if (theme === 'system') {
       theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
